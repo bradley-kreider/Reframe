@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=400">
+  <title>Reframe</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Reframe</h1>
+    <div id="ollama-status" class="status disconnected">
+      <span class="status-dot"></span>
+      <span id="status-text">Checking Ollama...</span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-store="blacklist">Blacklist</button>
+    <button class="tab" data-store="whitelist">Whitelist</button>
+  </nav>
+
+  <div class="filter-bar">
+    <button class="filter active" data-type="all">All</button>
+    <button class="filter" data-type="keyword">Keywords</button>
+    <button class="filter" data-type="topic">Topics</button>
+    <button class="filter" data-type="source">Sources</button>
+  </div>
+
+  <form id="add-form">
+    <select id="pref-type">
+      <option value="keyword">Keyword</option>
+      <option value="topic">Topic</option>
+      <option value="source">Source</option>
+    </select>
+    <input type="text" id="pref-value" placeholder="Enter value..." required>
+    <button type="submit" id="add-btn">Add</button>
+  </form>
+
+  <ul id="pref-list"></ul>
+
+  <footer>
+    <button id="clear-all-btn">Clear All</button>
+  </footer>
+
+  <script src="../db.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
