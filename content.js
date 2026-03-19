@@ -8,6 +8,7 @@ let blacklist = [];
 let whitelist = [];
 let blacklistRegex = null;
 let scanning = false;
+let newsApiKey = null;
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -21,10 +22,14 @@ function buildRegex(items) {
 
 async function loadPreferences() {
   try {
-    const response = await chrome.runtime.sendMessage({ action: "getPreferences" });
-    blacklist = response.blacklist || [];
-    whitelist = response.whitelist || [];
+    const [prefsResponse, storageResult] = await Promise.all([
+      chrome.runtime.sendMessage({ action: "getPreferences" }),
+      chrome.storage.local.get("newsApiKey"),
+    ]);
+    blacklist = prefsResponse.blacklist || [];
+    whitelist = prefsResponse.whitelist || [];
     blacklistRegex = buildRegex(blacklist);
+    newsApiKey = storageResult.newsApiKey || null;
   } catch (err) {
     console.warn("[Reframe] Failed to load preferences:", err);
   }
@@ -71,6 +76,7 @@ async function replaceMatch(match) {
       text: match.text,
       matchedTerms: match.matchedTerms,
       whitelist,
+      newsApiKey,
     });
 
     if (!response || !response.success) {
@@ -81,15 +87,57 @@ async function replaceMatch(match) {
     // Make sure the node is still in the DOM
     if (!match.node.parentElement) return;
 
-    const span = document.createElement("span");
-    span.textContent = response.replacement;
-    span.setAttribute("data-reframe-replaced", "true");
-    span.style.backgroundColor = "rgba(74, 144, 217, 0.08)";
-    span.style.borderRadius = "2px";
-    span.title = "Reframed content (original contained: " + match.matchedTerms.join(", ") + ")";
-    match.node.parentElement.replaceChild(span, match.node);
+    let replacement;
+    if (response.articleUrl) {
+      replacement = document.createElement("a");
+      replacement.href = response.articleUrl;
+      replacement.target = "_blank";
+      replacement.rel = "noopener noreferrer";
+    } else {
+      replacement = document.createElement("span");
+    }
+    replacement.textContent = response.replacement;
+    replacement.setAttribute("data-reframe-replaced", "true");
+    replacement.style.backgroundColor = "rgba(74, 144, 217, 0.08)";
+    replacement.style.borderRadius = "2px";
+    replacement.title = "Reframed content (original contained: " + match.matchedTerms.join(", ") + ")";
+    match.node.parentElement.replaceChild(replacement, match.node);
+
+    if (response.articleImageUrl) {
+      replaceHeroImage(response.articleImageUrl);
+    }
   } catch (err) {
     console.warn("[Reframe] Error replacing text:", err);
+  }
+}
+
+function replaceHeroImage(imageUrl) {
+  // Try og:image meta tag first
+  const ogImage = document.querySelector('meta[property="og:image"]');
+  if (ogImage) {
+    ogImage.setAttribute("content", imageUrl);
+  }
+
+  // Find the hero image element: largest <img> in the top portion of the page
+  const allImages = Array.from(document.querySelectorAll("img[src]")).filter((img) => {
+    // Skip tiny icons and tracking pixels
+    return img.naturalWidth > 100 || img.width > 100 || img.offsetWidth > 100;
+  });
+
+  if (!allImages.length) return;
+
+  // Prefer images in header/article/figure elements, otherwise pick the largest visible one
+  const heroCandidate =
+    document.querySelector("header img[src], article img[src], figure img[src], .hero img[src], [class*='header'] img[src], [class*='hero'] img[src]") ||
+    allImages.reduce((best, img) => {
+      const bArea = (best.offsetWidth || best.width || 0) * (best.offsetHeight || best.height || 0);
+      const iArea = (img.offsetWidth || img.width || 0) * (img.offsetHeight || img.height || 0);
+      return iArea > bArea ? img : best;
+    });
+
+  if (heroCandidate) {
+    heroCandidate.src = imageUrl;
+    heroCandidate.srcset = "";
   }
 }
 

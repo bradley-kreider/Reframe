@@ -221,3 +221,60 @@ footer {
   background: #f44336;
   color: #fff;
 }
+
+/* Settings */
+.settings-section {
+  padding: 10px 16px 14px;
+  border-top: 1px solid #eee;
+}
+
+.settings-section label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #666;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-row {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-row input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.settings-row input:focus {
+  outline: none;
+  border-color: #4A90D9;
+}
+
+#save-api-key-btn {
+  padding: 6px 14px;
+  background: #4A90D9;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+#save-api-key-btn:hover { background: #3a7bc8; }
+
+.settings-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #999;
+}
+
+.settings-link {
+  color: #4A90D9;
+}

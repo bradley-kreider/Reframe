@@ -2,6 +2,10 @@ importScripts("db.js");
 
 const OLLAMA_BASE = "http://localhost:11434";
 const OLLAMA_MODEL = "llama3.2";
+const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
+
+// Cache keyed by topic, lives for the duration of the service worker session
+const newsApiCache = {};
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "checkOllamaStatus") {
@@ -10,7 +14,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "getReplacements") {
-    getReplacements(message.text, message.matchedTerms, message.whitelist)
+    getReplacements(message.text, message.matchedTerms, message.whitelist, message.newsApiKey)
       .then(sendResponse);
     return true;
   }
@@ -49,11 +53,33 @@ async function checkOllama() {
   }
 }
 
-async function getReplacements(originalText, matchedTerms, whitelist) {
+async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey) {
   const prompt = buildPrompt(originalText, matchedTerms, whitelist);
+
+  // Pick first whitelisted topic (or keyword) to query NewsAPI
+  const topics = whitelist.filter((w) => w.type === "topic").map((w) => w.value);
+  const keywords = whitelist.filter((w) => w.type === "keyword").map((w) => w.value);
+  const searchTerm = topics[0] || keywords[0] || null;
+
+  const [ollamaResult, articleResult] = await Promise.all([
+    fetchOllama(prompt),
+    searchTerm && newsApiKey ? fetchArticle(searchTerm, newsApiKey) : Promise.resolve(null),
+  ]);
+
+  if (!ollamaResult.success) return ollamaResult;
+
+  return {
+    success: true,
+    replacement: ollamaResult.replacement,
+    articleUrl: articleResult?.url || null,
+    articleImageUrl: articleResult?.imageUrl || null,
+  };
+}
+
+async function fetchOllama(prompt) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 60000);
     const res = await fetch(OLLAMA_BASE + "/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -76,6 +102,29 @@ async function getReplacements(originalText, matchedTerms, whitelist) {
     return { success: true, replacement: data.response.trim() };
   } catch (err) {
     return { success: false, error: err.message };
+  }
+}
+
+async function fetchArticle(topic, apiKey) {
+  if (newsApiCache[topic]) return newsApiCache[topic];
+
+  try {
+    const url = NEWSAPI_BASE + "?q=" + encodeURIComponent(topic) + "&pageSize=1&apiKey=" + apiKey;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const article = data.articles?.[0];
+    if (!article) return null;
+
+    const result = {
+      url: article.url || null,
+      imageUrl: article.urlToImage || null,
+    };
+    newsApiCache[topic] = result;
+    return result;
+  } catch {
+    return null;
   }
 }
 

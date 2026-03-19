@@ -3,8 +3,8 @@
   "name": "Reframe",
   "version": "1.0.0",
   "description": "Detects blacklisted content and replaces it with your preferred topics using a local LLM.",
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": ["http://localhost:11434/*"],
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://localhost:11434/*", "https://newsapi.org/*"],
   "background": {
     "service_worker": "background.js"
   },

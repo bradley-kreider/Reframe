@@ -151,6 +151,23 @@ function notifyPreferencesUpdated() {
   chrome.runtime.sendMessage({ action: "preferencesUpdated" }).catch(() => {});
 }
 
+// --- NewsAPI key ---
+const newsApiKeyInput = document.getElementById("news-api-key");
+const saveApiKeyBtn = document.getElementById("save-api-key-btn");
+
+saveApiKeyBtn.addEventListener("click", async () => {
+  const key = newsApiKeyInput.value.trim();
+  await chrome.storage.local.set({ newsApiKey: key });
+  saveApiKeyBtn.textContent = "Saved!";
+  setTimeout(() => { saveApiKeyBtn.textContent = "Save"; }, 1500);
+});
+
+async function loadApiKey() {
+  const result = await chrome.storage.local.get("newsApiKey");
+  if (result.newsApiKey) newsApiKeyInput.value = result.newsApiKey;
+}
+
 // --- Init ---
 renderList();
 checkOllamaStatus();
+loadApiKey();
