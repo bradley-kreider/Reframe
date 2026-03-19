@@ -43,6 +43,16 @@ header h1 {
 .status.disconnected .status-dot { background: #f44336; }
 .status.checking .status-dot { background: #ff9800; }
 
+#replacement-count {
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.1s ease;
+}
+
+#replacement-count:hover {
+  transform: scale(1.05);
+}
+
 /* Tabs */
 .tabs {
   display: flex;

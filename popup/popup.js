@@ -8,6 +8,7 @@ const prefValue = document.getElementById("pref-value");
 const clearAllBtn = document.getElementById("clear-all-btn");
 const statusEl = document.getElementById("ollama-status");
 const statusText = document.getElementById("status-text");
+const replacementCountEl = document.getElementById("replacement-count");
 
 // --- Tab switching ---
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -166,6 +167,18 @@ async function loadApiKey() {
   const result = await chrome.storage.local.get("newsApiKey");
   if (result.newsApiKey) newsApiKeyInput.value = result.newsApiKey;
 }
+
+// --- Clear article cache (developer tool) ---
+const clearCacheBtn = document.getElementById("clear-cache-btn");
+clearCacheBtn.addEventListener("click", async () => {
+  if (!confirm("Clear the article cache? This will force new NewsAPI queries on next replacements.")) return;
+  chrome.runtime.sendMessage({ action: "clearArticleCache" }, (response) => {
+    if (response && response.success) {
+      clearCacheBtn.textContent = "Cache Cleared!";
+      setTimeout(() => { clearCacheBtn.textContent = "Clear Article Cache"; }, 1500);
+    }
+  });
+});
 
 // --- Init ---
 renderList();
