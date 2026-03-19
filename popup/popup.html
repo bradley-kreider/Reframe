@@ -8,7 +8,10 @@
 </head>
 <body>
   <header>
-    <h1>Reframe</h1>
+    <h1 class="brand-title">
+      <img src="../icons/logo_small.png" alt="Reframe logo" class="brand-logo">
+      <span>Reframe</span>
+    </h1>
     <div id="ollama-status" class="status disconnected">
       <span class="status-dot"></span>
       <span id="status-text">Checking Ollama...</span>
@@ -19,8 +22,8 @@
     <button class="tab active" data-store="blacklist">Blacklist</button>
     <button class="tab" data-store="whitelist">Whitelist</button>
   </nav>
-
   <div class="filter-bar">
+    <label >Filters</label>
     <button class="filter active" data-type="all">All</button>
     <button class="filter" data-type="keyword">Keywords</button>
     <button class="filter" data-type="topic">Topics</button>
@@ -44,20 +47,18 @@
   </footer>
 
   <div class="settings-section">
+    <label>Developer Tools</label>
+    <div class="settings-row">
+      <button id="clear-cache-btn">Clear Article Cache</button>
+    </div>
+    <p class="settings-hint">Clear the cached NewsAPI articles. Useful for testing or freeing up memory.</p>
+
     <label for="news-api-key">NewsAPI Key</label>
     <div class="settings-row">
       <input type="password" id="news-api-key" placeholder="Paste your NewsAPI key...">
       <button id="save-api-key-btn">Save</button>
     </div>
     <p class="settings-hint">Used to find real replacement articles. Get a free key at <span class="settings-link">newsapi.org</span></p>
-  </div>
-
-  <div class="settings-section">
-    <label>Developer Tools</label>
-    <div class="settings-row">
-      <button id="clear-cache-btn" style="flex: 1; background-color: #f0f0f0; color: #333;">Clear Article Cache</button>
-    </div>
-    <p class="settings-hint">Clear the cached NewsAPI articles. Useful for testing or freeing up memory.</p>
   </div>
 
   <script src="../db.js"></script>
