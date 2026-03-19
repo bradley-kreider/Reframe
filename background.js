@@ -6,6 +6,7 @@ const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
 
 // Cache keyed by topic, lives for the duration of the service worker session
 const newsApiCache = {};
+const usedArticleUrls = new Set();
 let replacementCount = 0;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -61,6 +62,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "clearArticleCache") {
     console.log("[Reframe] Clearing article cache");
     Object.keys(newsApiCache).forEach(key => delete newsApiCache[key]);
+    usedArticleUrls.clear();
     sendResponse({ success: true });
   }
 
@@ -141,21 +143,21 @@ async function enforceSimilarLength(originalText, replacementText) {
   if (!originalWords || !replacementWords) return replacementText;
 
   // Keep output in a tight range around the original length.
-  const minWords = Math.max(1, Math.floor(originalWords * 0.85));
-  const maxWords = Math.ceil(originalWords * 1.15);
+  const minWords = Math.max(1, Math.floor(originalWords * 0.7));
+  const maxWords = Math.ceil(originalWords * 1.35);
 
   if (replacementWords >= minWords && replacementWords <= maxWords) {
     return replacementText;
   }
 
   const adjustPrompt =
-    "Rewrite the replacement text to match the original length more closely.\\n" +
+    "Rewrite the replacement text so it reads naturally while staying close to the original length.\\n" +
     "Return ONLY rewritten text.\\n\\n" +
     "ORIGINAL WORD COUNT: " + originalWords + "\\n" +
     "TARGET RANGE: " + minWords + "-" + maxWords + " words\\n" +
     "ORIGINAL TEXT: \"" + originalText + "\"\\n" +
     "CURRENT REPLACEMENT: \"" + replacementText + "\"\\n\\n" +
-    "Keep meaning aligned with the current replacement, preserve tone and sentence structure, and stay within target range.";
+    "Keep meaning aligned with the current replacement, keep a natural flow, and stay within target range.";
 
   const adjusted = await fetchOllama(adjustPrompt);
   if (!adjusted.success) return replacementText;
@@ -215,37 +217,98 @@ async function fetchOllama(prompt) {
 }
 
 async function fetchArticle(topic, apiKey) {
-  if (newsApiCache[topic]) {
-    console.log("[Reframe] Using cached article for topic:", topic);
-    return newsApiCache[topic];
+  const cacheKey = (topic || "").trim().toLowerCase();
+  if (!cacheKey) return null;
+
+  if (!newsApiCache[cacheKey]) {
+    newsApiCache[cacheKey] = { articles: [], cursor: 0 };
   }
 
-  console.log("[Reframe] Fetching new article for topic:", topic);
+  const pool = newsApiCache[cacheKey];
+  const cachedPick = pickUnusedArticleFromPool(pool);
+  if (cachedPick) {
+    console.log("[Reframe] Using cached fresh article for topic:", topic);
+    return cachedPick;
+  }
+
+  console.log("[Reframe] Fetching new article batch for topic:", topic);
+
+  // Try a few pages to maximize chance of a unique, non-reused article.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const page = 1 + Math.floor(Math.random() * 5);
+    const freshBatch = await fetchArticleBatch(topic, apiKey, page);
+    if (!freshBatch.length) continue;
+
+    mergeArticleBatch(pool, freshBatch);
+    const freshPick = pickUnusedArticleFromPool(pool);
+    if (freshPick) {
+      return freshPick;
+    }
+  }
+
+  return null;
+}
+
+async function fetchArticleBatch(topic, apiKey, page) {
   try {
-    const url = NEWSAPI_BASE + "?q=" + encodeURIComponent(topic) + "&language=en&sortBy=relevancy&pageSize=5&apiKey=" + apiKey;
+    const url =
+      NEWSAPI_BASE +
+      "?q=" + encodeURIComponent(topic) +
+      "&language=en&sortBy=publishedAt&pageSize=20&page=" + page +
+      "&apiKey=" + apiKey;
+
     const res = await fetch(url);
     if (!res.ok) {
       const errorText = await res.text();
       console.warn("[Reframe] NewsAPI returned", res.status, "for topic", topic, errorText);
-      return null;
+      return [];
     }
 
     const data = await res.json();
-    const article = (data.articles || []).find((a) => a?.title) || null;
-    if (!article) return null;
+    const articles = (data.articles || [])
+      .filter((a) => a && a.title && a.url)
+      .map((article) => ({
+        url: article.url || null,
+        imageUrl: article.urlToImage || null,
+        title: article.title || null,
+        description: article.description || null,
+      }));
 
-    const result = {
-      url: article.url || null,
-      imageUrl: article.urlToImage || null,
-      title: article.title || null,
-      description: article.description || null,
-    };
-    newsApiCache[topic] = result;
-    console.log("[Reframe] Cached new article for topic:", topic);
-    return result;
+    return articles;
   } catch {
-    return null;
+    return [];
   }
+}
+
+function mergeArticleBatch(pool, articles) {
+  const seenUrls = new Set(pool.articles.map((a) => a.url));
+  for (const article of articles) {
+    if (!article?.url || seenUrls.has(article.url)) continue;
+    seenUrls.add(article.url);
+    pool.articles.push(article);
+  }
+}
+
+function pickUnusedArticleFromPool(pool) {
+  if (!pool?.articles?.length) return null;
+
+  for (let i = pool.cursor; i < pool.articles.length; i++) {
+    const article = pool.articles[i];
+    if (!article?.url || usedArticleUrls.has(article.url)) continue;
+    pool.cursor = i + 1;
+    usedArticleUrls.add(article.url);
+    return article;
+  }
+
+  for (let i = 0; i < pool.cursor; i++) {
+    const article = pool.articles[i];
+    if (!article?.url || usedArticleUrls.has(article.url)) continue;
+    pool.cursor = i + 1;
+    usedArticleUrls.add(article.url);
+    return article;
+  }
+
+  return null;
 }
 
 async function resolveNewsApiKey(providedKey) {
@@ -297,7 +360,8 @@ function buildPrompt(originalText, matchedTerms, whitelist, article) {
   prompt += (
     "\nWrite new text that is strictly about the reference article only. " +
     "Do not mention unrelated topics, and do not invent details not supported by the reference article title/description. " +
-    "Keep the same sentence structure and tone. " +
+    "Use natural wording that sounds like normal article copy, not a template. " +
+    "Keep the overall tone and intent of the original text. " +
     "Target " + originalWordTotal + " words (acceptable range: " + targetMin + "-" + targetMax + "). " +
     "Only output the rewritten text."
   );
