@@ -377,7 +377,7 @@ async function scanPage() {
   const matches = findMatches(textNodes);
   console.log("[Reframe] Found", matches.length, "matches");
 
-  // Process replacements sequentially to avoid overwhelming Ollama
+  // Process replacements sequentially to avoid overwhelming Grok
   for (const match of matches) {
     await replaceMatch(match);
   }

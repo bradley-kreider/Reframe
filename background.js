@@ -11,8 +11,8 @@ let replacementCount = 0;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("[Reframe] Background received message:", message.action);
-  if (message.action === "checkOllamaStatus") {
-    checkOllama().then(sendResponse);
+  if (message.action === "checkGrokStatus") {
+    checkGrok().then(sendResponse);
     return true; // async
   }
 
@@ -76,7 +76,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-async function checkOllama() {
+async function checkGrok() {
   const xaiApiKey = await resolveXaiApiKey();
   if (!xaiApiKey) return { connected: false };
 

@@ -29,7 +29,7 @@ const addForm = document.getElementById("add-form");
 const prefType = document.getElementById("pref-type");
 const prefValue = document.getElementById("pref-value");
 const clearAllBtn = document.getElementById("clear-all-btn");
-const statusEl = document.getElementById("ollama-status");
+const statusEl = document.getElementById("grok-status");
 const statusText = document.getElementById("status-text");
 const replacementCountEl = document.getElementById("replacement-count");
 const replacementEnabledToggle = document.getElementById("replacement-enabled-toggle");
@@ -163,12 +163,12 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// --- Ollama status ---
-async function checkOllamaStatus() {
+// --- Grok status ---
+async function checkGrokStatus() {
   statusEl.className = "status checking";
   statusText.textContent = "Checking...";
   try {
-    const response = await chrome.runtime.sendMessage({ action: "checkOllamaStatus" });
+    const response = await chrome.runtime.sendMessage({ action: "checkGrokStatus" });
     if (response && response.connected) {
       statusEl.className = "status connected";
       statusText.textContent = "xAI Connected";
@@ -321,7 +321,7 @@ saveXaiApiKeyBtn.addEventListener("click", async () => {
   await chrome.storage.local.set({ xaiApiKey: key });
   saveXaiApiKeyBtn.textContent = "Saved!";
   setTimeout(() => { saveXaiApiKeyBtn.textContent = "Save"; }, 1500);
-  checkOllamaStatus();
+  checkGrokStatus();
 });
 
 async function loadApiKey() {
@@ -355,5 +355,5 @@ clearCacheBtn.addEventListener("click", async () => {
 
 // --- Init ---
 renderList();
-checkOllamaStatus();
+checkGrokStatus();
 loadApiKey();

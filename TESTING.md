@@ -1,5 +1,7 @@
 # Reframe MVP — Testing Instructions
 
+NOTE: This document applies to local Ollama LLM, OUTDATED as of 3/20/26
+
 ## Prerequisites
 
 1. **Google Chrome** (or Chromium-based browser)
