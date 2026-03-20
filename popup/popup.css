@@ -289,6 +289,104 @@ footer {
   gap: 8px;
 }
 
+.settings-row-stacked {
+  flex-direction: column;
+}
+
+.hidden {
+  display: none;
+}
+
+.major-news-domains-section {
+  margin-top: 8px;
+}
+
+#major-news-domains-list {
+  list-style: none;
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+#major-news-domains-list:empty::after {
+  content: "No domains yet. Add one above.";
+  display: block;
+  text-align: center;
+  color: #8a94a3;
+  padding: 16px 10px;
+  font-size: 12px;
+}
+
+.domain-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.domain-item:last-child {
+  border-bottom: none;
+}
+
+.domain-item .domain-value {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain-item .domain-value-edit {
+  flex: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--brand-amber);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.domain-item button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  color: #999;
+}
+
+.domain-item button:hover { color: var(--brand-slate); }
+.domain-item .delete-btn:hover { color: #f44336; }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+#major-news-only-toggle {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand-slate);
+  cursor: pointer;
+}
+
+.toggle-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
 .settings-row input {
   flex: 1;
   padding: 6px 10px;
@@ -314,6 +412,20 @@ footer {
 }
 
 #save-api-key-btn:hover { filter: brightness(1.08); }
+
+#add-major-news-domain-btn {
+  align-self: flex-end;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, var(--brand-slate), var(--brand-slate-soft));
+  color: #f8fbff;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+#add-major-news-domain-btn:hover { filter: brightness(1.08); }
 
 #clear-cache-btn {
   flex: 1;

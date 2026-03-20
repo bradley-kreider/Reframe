@@ -47,6 +47,25 @@
   </footer>
 
   <div class="settings-section">
+    <label>Settings</label>
+    <div class="toggle-row">
+      <input type="checkbox" id="major-news-only-toggle">
+      <label for="major-news-only-toggle" class="toggle-label">Only replace on major news websites</label>
+    </div>
+    <p class="settings-hint">When enabled, replacements only run on selected major news domains.</p>
+
+    <div id="major-news-domains-section" class="major-news-domains-section hidden">
+      <label for="major-news-domain-value">Major News Domains</label>
+      <div class="settings-row">
+        <input type="text" id="major-news-domain-value" placeholder="e.g. reuters.com">
+        <button id="add-major-news-domain-btn">Add</button>
+      </div>
+      <ul id="major-news-domains-list"></ul>
+      <p class="settings-hint">Editable allowlist used by the toggle above. Click edit to update a domain.</p>
+    </div>
+  </div>
+
+  <div class="settings-section">
     <label>Developer Tools</label>
     <div class="settings-row">
       <button id="clear-cache-btn">Clear Article Cache</button>

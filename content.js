@@ -11,8 +11,55 @@ let whitelist = [];
 let blacklistRegex = null;
 let scanning = false;
 let newsApiKey = null;
+let restrictToMajorNews = false;
 let pendingImageRetryTimer = null;
 const pendingImageReplacements = new Set();
+
+const DEFAULT_MAJOR_NEWS_DOMAINS = [
+  "news.google.com",
+  "reuters.com",
+  "apnews.com",
+  "bbc.com",
+  "bbc.co.uk",
+  "cnn.com",
+  "foxnews.com",
+  "nytimes.com",
+  "washingtonpost.com",
+  "wsj.com",
+  "nbcnews.com",
+  "abcnews.go.com",
+  "cbsnews.com",
+  "usatoday.com",
+  "bloomberg.com",
+  "theguardian.com",
+  "npr.org",
+  "forbes.com",
+  "msn.com",
+  "yahoo.com",
+];
+let majorNewsDomains = [...DEFAULT_MAJOR_NEWS_DOMAINS];
+
+function normalizeDomainList(domains) {
+  if (!Array.isArray(domains)) return [];
+
+  const seen = new Set();
+  const normalized = [];
+
+  for (const domain of domains) {
+    const clean = String(domain || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/.*/, "")
+      .replace(/^www\./, "");
+
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    normalized.push(clean);
+  }
+
+  return normalized;
+}
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -28,15 +75,28 @@ async function loadPreferences() {
   try {
     const [prefsResponse, storageResult] = await Promise.all([
       chrome.runtime.sendMessage({ action: "getPreferences" }),
-      chrome.storage.local.get("newsApiKey"),
+      chrome.storage.local.get(["newsApiKey", "restrictToMajorNews", "majorNewsDomains"]),
     ]);
     blacklist = prefsResponse.blacklist || [];
     whitelist = prefsResponse.whitelist || [];
     blacklistRegex = buildRegex(blacklist);
     newsApiKey = storageResult.newsApiKey || null;
+    restrictToMajorNews = Boolean(storageResult.restrictToMajorNews);
+
+    const storedDomains = normalizeDomainList(storageResult.majorNewsDomains);
+    majorNewsDomains = storedDomains.length
+      ? storedDomains
+      : [...DEFAULT_MAJOR_NEWS_DOMAINS];
   } catch (err) {
     console.warn("[Reframe] Failed to load preferences:", err);
   }
+}
+
+function isMajorNewsWebsite(hostname) {
+  const normalized = (hostname || "").toLowerCase();
+  return majorNewsDomains.some((domain) =>
+    normalized === domain || normalized.endsWith("." + domain)
+  );
 }
 
 function getTextNodes() {
@@ -297,6 +357,12 @@ async function scanPage() {
   scanning = true;
 
   await loadPreferences();
+
+  if (restrictToMajorNews && !isMajorNewsWebsite(window.location.hostname)) {
+    scanning = false;
+    return;
+  }
+
   if (!blacklistRegex || !whitelist.length) {
     scanning = false;
     return;

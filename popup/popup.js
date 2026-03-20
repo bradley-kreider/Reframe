@@ -1,6 +1,29 @@
 let currentStore = "blacklist";
 let currentFilter = "all";
 
+const DEFAULT_MAJOR_NEWS_DOMAINS = [
+  "news.google.com",
+  "reuters.com",
+  "apnews.com",
+  "bbc.com",
+  "bbc.co.uk",
+  "cnn.com",
+  "foxnews.com",
+  "nytimes.com",
+  "washingtonpost.com",
+  "wsj.com",
+  "nbcnews.com",
+  "abcnews.go.com",
+  "cbsnews.com",
+  "usatoday.com",
+  "bloomberg.com",
+  "theguardian.com",
+  "npr.org",
+  "forbes.com",
+  "msn.com",
+  "yahoo.com",
+];
+
 const prefList = document.getElementById("pref-list");
 const addForm = document.getElementById("add-form");
 const prefType = document.getElementById("pref-type");
@@ -155,6 +178,123 @@ function notifyPreferencesUpdated() {
 // --- NewsAPI key ---
 const newsApiKeyInput = document.getElementById("news-api-key");
 const saveApiKeyBtn = document.getElementById("save-api-key-btn");
+const majorNewsOnlyToggle = document.getElementById("major-news-only-toggle");
+const majorNewsDomainsSection = document.getElementById("major-news-domains-section");
+const majorNewsDomainValue = document.getElementById("major-news-domain-value");
+const addMajorNewsDomainBtn = document.getElementById("add-major-news-domain-btn");
+const majorNewsDomainsList = document.getElementById("major-news-domains-list");
+let majorNewsDomains = [...DEFAULT_MAJOR_NEWS_DOMAINS];
+
+function setMajorNewsDomainsVisibility() {
+  if (majorNewsOnlyToggle.checked) {
+    majorNewsDomainsSection.classList.remove("hidden");
+  } else {
+    majorNewsDomainsSection.classList.add("hidden");
+  }
+}
+
+function normalizeSingleDomain(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*/, "")
+    .replace(/^www\./, "");
+}
+
+function normalizeDomainList(domains) {
+  const seen = new Set();
+  return (domains || [])
+    .map((domain) => normalizeSingleDomain(domain))
+    .filter(Boolean)
+    .filter((domain) => {
+      if (seen.has(domain)) return false;
+      seen.add(domain);
+      return true;
+    });
+}
+
+async function saveMajorNewsDomains(domains) {
+  const normalized = normalizeDomainList(domains);
+  majorNewsDomains = normalized.length ? normalized : [...DEFAULT_MAJOR_NEWS_DOMAINS];
+  await chrome.storage.local.set({ majorNewsDomains: majorNewsDomains });
+  renderMajorNewsDomains();
+  notifyPreferencesUpdated();
+}
+
+function renderMajorNewsDomains() {
+  majorNewsDomainsList.innerHTML = "";
+
+  for (const domain of majorNewsDomains) {
+    const li = document.createElement("li");
+    li.className = "domain-item";
+    li.innerHTML =
+      '<span class="domain-value">' + escapeHtml(domain) + "</span>" +
+      '<button class="edit-btn" title="Edit">&#9998;</button>' +
+      '<button class="delete-btn" title="Delete">&times;</button>';
+
+    li.querySelector(".edit-btn").addEventListener("click", () => {
+      startInlineDomainEdit(li, domain);
+    });
+
+    li.querySelector(".delete-btn").addEventListener("click", async () => {
+      const next = majorNewsDomains.filter((d) => d !== domain);
+      await saveMajorNewsDomains(next);
+    });
+
+    majorNewsDomainsList.appendChild(li);
+  }
+}
+
+function startInlineDomainEdit(li, originalDomain) {
+  const valueSpan = li.querySelector(".domain-value");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "domain-value-edit";
+  input.value = originalDomain;
+  valueSpan.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const save = async () => {
+    const nextValue = normalizeSingleDomain(input.value);
+    if (!nextValue || nextValue === originalDomain) {
+      renderMajorNewsDomains();
+      return;
+    }
+
+    const next = majorNewsDomains.map((d) => (d === originalDomain ? nextValue : d));
+    await saveMajorNewsDomains(next);
+  };
+
+  input.addEventListener("blur", save);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") save();
+    if (e.key === "Escape") renderMajorNewsDomains();
+  });
+}
+
+majorNewsOnlyToggle.addEventListener("change", async () => {
+  await chrome.storage.local.set({ restrictToMajorNews: majorNewsOnlyToggle.checked });
+  setMajorNewsDomainsVisibility();
+  notifyPreferencesUpdated();
+});
+
+addMajorNewsDomainBtn.addEventListener("click", async () => {
+  const domain = normalizeSingleDomain(majorNewsDomainValue.value);
+  if (!domain) return;
+
+  const next = normalizeDomainList([...majorNewsDomains, domain]);
+  await saveMajorNewsDomains(next);
+  majorNewsDomainValue.value = "";
+});
+
+majorNewsDomainValue.addEventListener("keydown", async (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addMajorNewsDomainBtn.click();
+  }
+});
 
 saveApiKeyBtn.addEventListener("click", async () => {
   const key = newsApiKeyInput.value.trim();
@@ -164,8 +304,17 @@ saveApiKeyBtn.addEventListener("click", async () => {
 });
 
 async function loadApiKey() {
-  const result = await chrome.storage.local.get("newsApiKey");
+  const result = await chrome.storage.local.get(["newsApiKey", "restrictToMajorNews", "majorNewsDomains"]);
   if (result.newsApiKey) newsApiKeyInput.value = result.newsApiKey;
+  majorNewsOnlyToggle.checked = Boolean(result.restrictToMajorNews);
+  setMajorNewsDomainsVisibility();
+
+  const savedDomains = Array.isArray(result.majorNewsDomains) ? result.majorNewsDomains : [];
+  majorNewsDomains = normalizeDomainList(savedDomains);
+  if (!majorNewsDomains.length) {
+    majorNewsDomains = [...DEFAULT_MAJOR_NEWS_DOMAINS];
+  }
+  renderMajorNewsDomains();
 }
 
 // --- Clear article cache (developer tool) ---
