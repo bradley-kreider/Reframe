@@ -8,13 +8,19 @@
 </head>
 <body>
   <header>
-    <h1 class="brand-title">
-      <img src="../icons/logo_small.png" alt="Reframe logo" class="brand-logo">
-      <span>Reframe</span>
-    </h1>
+    <div class="header-left">
+      <label class="header-switch" title="Enable or disable all replacements">
+        <input type="checkbox" id="replacement-enabled-toggle" checked>
+        <span class="slider"></span>
+      </label>
+      <h1 class="brand-title">
+        <img src="../icons/logo_small.png" alt="Reframe logo" class="brand-logo">
+        <span>Reframe</span>
+      </h1>
+    </div>
     <div id="ollama-status" class="status disconnected">
       <span class="status-dot"></span>
-      <span id="status-text">Checking Ollama...</span>
+      <span id="status-text">Checking xAI...</span>
     </div>
   </header>
 
@@ -71,6 +77,13 @@
       <button id="clear-cache-btn">Clear Article Cache</button>
     </div>
     <p class="settings-hint">Clear the cached NewsAPI articles. Useful for testing or freeing up memory.</p>
+
+    <label for="xai-api-key">xAI API Key</label>
+    <div class="settings-row">
+      <input type="password" id="xai-api-key" placeholder="Paste your xAI API key...">
+      <button id="save-xai-api-key-btn">Save</button>
+    </div>
+    <p class="settings-hint">Used for non-reasoning replacements via grok-4-1-fast-non-reasoning.</p>
 
     <label for="news-api-key">NewsAPI Key</label>
     <div class="settings-row">

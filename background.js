@@ -1,7 +1,7 @@
 importScripts("db.js");
 
-const OLLAMA_BASE = "http://localhost:11434";
-const OLLAMA_MODEL = "llama3.2";
+const XAI_BASE = "https://api.x.ai/v1";
+const XAI_MODEL = "grok-4-1-fast-non-reasoning";
 const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
 
 // Cache keyed by topic, lives for the duration of the service worker session
@@ -77,10 +77,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function checkOllama() {
+  const xaiApiKey = await resolveXaiApiKey();
+  if (!xaiApiKey) return { connected: false };
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(OLLAMA_BASE + "/", { signal: controller.signal });
+    const res = await fetch(XAI_BASE + "/models", {
+      headers: {
+        Authorization: "Bearer " + xaiApiKey,
+      },
+      signal: controller.signal,
+    });
     clearTimeout(timeout);
     return { connected: res.ok };
   } catch {
@@ -116,11 +124,11 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
   const prompt = buildPrompt(originalText, safeMatchedTerms, safeWhitelist, articleResult);
 
   // Then fetch LLM replacement based on the article
-  const ollamaResult = await fetchOllama(prompt);
+  const xaiResult = await fetchXaiNonReasoning(prompt);
 
-  if (!ollamaResult.success) return ollamaResult;
+  if (!xaiResult.success) return xaiResult;
 
-  const normalizedReplacement = await enforceSimilarLength(originalText, ollamaResult.replacement);
+  const normalizedReplacement = await enforceSimilarLength(originalText, xaiResult.replacement);
 
   replacementCount++;
   return {
@@ -159,7 +167,7 @@ async function enforceSimilarLength(originalText, replacementText) {
     "CURRENT REPLACEMENT: \"" + replacementText + "\"\\n\\n" +
     "Keep meaning aligned with the current replacement, keep a natural flow, and stay within target range.";
 
-  const adjusted = await fetchOllama(adjustPrompt);
+  const adjusted = await fetchXaiNonReasoning(adjustPrompt);
   if (!adjusted.success) return replacementText;
 
   const adjustedWords = wordCount(adjusted.replacement);
@@ -171,48 +179,78 @@ async function enforceSimilarLength(originalText, replacementText) {
   return replacementText;
 }
 
-async function fetchOllama(prompt) {
-  console.log("[Reframe] Starting Ollama request with prompt length:", prompt.length);
+async function fetchXaiNonReasoning(prompt) {
+  const xaiApiKey = await resolveXaiApiKey();
+  if (!xaiApiKey) {
+    return {
+      success: false,
+      error: "xAI API key is missing. Add it in the popup to enable replacements.",
+    };
+  }
+
+  console.log("[Reframe] Starting xAI request with prompt length:", prompt.length);
   const requestBody = {
-    model: OLLAMA_MODEL,
-    prompt,
-    stream: false,
-    options: {
-      temperature: 0.3,
-      num_predict: 256,
-    },
+    model: XAI_MODEL,
+    messages: [
+      {
+        role: "system",
+        content: "You rewrite text to satisfy constraints. Return only plain rewritten text with no quotes or commentary.",
+      },
+      {
+        role: "user",
+        content: prompt,
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 320,
   };
   console.log("[Reframe] Request body:", JSON.stringify(requestBody, null, 2));
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
-    const res = await fetch(OLLAMA_BASE + "/api/generate", {
+    const res = await fetch(XAI_BASE + "/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 256,
-        },
-      }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + xaiApiKey,
+      },
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
     clearTimeout(timeout);
 
     if (!res.ok) {
       const errorText = await res.text();
-      console.error("[Reframe] Ollama error response:", res.status, errorText);
-      return { success: false, error: "Ollama returned " + res.status + ": " + errorText };
+      console.error("[Reframe] xAI error response:", res.status, errorText);
+      return { success: false, error: "xAI returned " + res.status + ": " + errorText };
     }
 
     const data = await res.json();
-    return { success: true, replacement: data.response.trim() };
+    const content = data?.choices?.[0]?.message?.content;
+    const text = typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("\n")
+        : "";
+
+    const cleaned = (text || "").trim();
+    if (!cleaned) {
+      return { success: false, error: "xAI returned an empty completion." };
+    }
+
+    return { success: true, replacement: cleaned };
   } catch (err) {
     console.error("[Reframe] Fetch error:", err);
     return { success: false, error: err.message };
+  }
+}
+
+async function resolveXaiApiKey() {
+  try {
+    const result = await chrome.storage.local.get("xaiApiKey");
+    return typeof result.xaiApiKey === "string" ? result.xaiApiKey.trim() : "";
+  } catch {
+    return "";
   }
 }
 

@@ -11,6 +11,7 @@ let whitelist = [];
 let blacklistRegex = null;
 let scanning = false;
 let newsApiKey = null;
+let replacementEnabled = true;
 let restrictToMajorNews = false;
 let pendingImageRetryTimer = null;
 const pendingImageReplacements = new Set();
@@ -75,12 +76,13 @@ async function loadPreferences() {
   try {
     const [prefsResponse, storageResult] = await Promise.all([
       chrome.runtime.sendMessage({ action: "getPreferences" }),
-      chrome.storage.local.get(["newsApiKey", "restrictToMajorNews", "majorNewsDomains"]),
+      chrome.storage.local.get(["newsApiKey", "restrictToMajorNews", "majorNewsDomains", "replacementEnabled"]),
     ]);
     blacklist = prefsResponse.blacklist || [];
     whitelist = prefsResponse.whitelist || [];
     blacklistRegex = buildRegex(blacklist);
     newsApiKey = storageResult.newsApiKey || null;
+    replacementEnabled = storageResult.replacementEnabled !== false;
     restrictToMajorNews = Boolean(storageResult.restrictToMajorNews);
 
     const storedDomains = normalizeDomainList(storageResult.majorNewsDomains);
@@ -243,9 +245,6 @@ async function replaceMatch(match) {
       replacement.style[style] = computedStyle[style];
     });
     
-    // Add subtle styling for visibility
-    replacement.style.backgroundColor = "rgba(74, 144, 217, 0.08)";
-    replacement.style.borderRadius = "2px";
     replacement.title = "Reframed content (original contained: " + match.matchedTerms.map(t => t.value).join(", ") + ")";
     
     contextElement.replaceChild(replacement, match.node);
@@ -357,6 +356,11 @@ async function scanPage() {
   scanning = true;
 
   await loadPreferences();
+
+  if (!replacementEnabled) {
+    scanning = false;
+    return;
+  }
 
   if (restrictToMajorNews && !isMajorNewsWebsite(window.location.hostname)) {
     scanning = false;

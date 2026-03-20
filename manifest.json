@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Detects blacklisted content and replaces it with your preferred topics using a local LLM.",
   "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["http://localhost:11434/*", "https://newsapi.org/*"],
+  "host_permissions": ["http://localhost:11434/*", "https://newsapi.org/*", "https://api.x.ai/*"],
   "background": {
     "service_worker": "background.js"
   },

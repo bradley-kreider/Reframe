@@ -32,6 +32,17 @@ const clearAllBtn = document.getElementById("clear-all-btn");
 const statusEl = document.getElementById("ollama-status");
 const statusText = document.getElementById("status-text");
 const replacementCountEl = document.getElementById("replacement-count");
+const replacementEnabledToggle = document.getElementById("replacement-enabled-toggle");
+
+function setPopupDimState() {
+  document.body.classList.toggle("popup-dimmed", !replacementEnabledToggle.checked);
+}
+
+replacementEnabledToggle.addEventListener("change", async () => {
+  await chrome.storage.local.set({ replacementEnabled: replacementEnabledToggle.checked });
+  setPopupDimState();
+  notifyPreferencesUpdated();
+});
 
 // --- Tab switching ---
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -160,14 +171,14 @@ async function checkOllamaStatus() {
     const response = await chrome.runtime.sendMessage({ action: "checkOllamaStatus" });
     if (response && response.connected) {
       statusEl.className = "status connected";
-      statusText.textContent = "Ollama Connected";
+      statusText.textContent = "xAI Connected";
     } else {
       statusEl.className = "status disconnected";
-      statusText.textContent = "Ollama Disconnected";
+      statusText.textContent = "xAI Disconnected";
     }
   } catch {
     statusEl.className = "status disconnected";
-    statusText.textContent = "Ollama Disconnected";
+    statusText.textContent = "xAI Disconnected";
   }
 }
 
@@ -178,6 +189,8 @@ function notifyPreferencesUpdated() {
 // --- NewsAPI key ---
 const newsApiKeyInput = document.getElementById("news-api-key");
 const saveApiKeyBtn = document.getElementById("save-api-key-btn");
+const xaiApiKeyInput = document.getElementById("xai-api-key");
+const saveXaiApiKeyBtn = document.getElementById("save-xai-api-key-btn");
 const majorNewsOnlyToggle = document.getElementById("major-news-only-toggle");
 const majorNewsDomainsSection = document.getElementById("major-news-domains-section");
 const majorNewsDomainValue = document.getElementById("major-news-domain-value");
@@ -303,10 +316,21 @@ saveApiKeyBtn.addEventListener("click", async () => {
   setTimeout(() => { saveApiKeyBtn.textContent = "Save"; }, 1500);
 });
 
+saveXaiApiKeyBtn.addEventListener("click", async () => {
+  const key = xaiApiKeyInput.value.trim();
+  await chrome.storage.local.set({ xaiApiKey: key });
+  saveXaiApiKeyBtn.textContent = "Saved!";
+  setTimeout(() => { saveXaiApiKeyBtn.textContent = "Save"; }, 1500);
+  checkOllamaStatus();
+});
+
 async function loadApiKey() {
-  const result = await chrome.storage.local.get(["newsApiKey", "restrictToMajorNews", "majorNewsDomains"]);
+  const result = await chrome.storage.local.get(["newsApiKey", "xaiApiKey", "restrictToMajorNews", "majorNewsDomains", "replacementEnabled"]);
   if (result.newsApiKey) newsApiKeyInput.value = result.newsApiKey;
+  if (result.xaiApiKey) xaiApiKeyInput.value = result.xaiApiKey;
   majorNewsOnlyToggle.checked = Boolean(result.restrictToMajorNews);
+  replacementEnabledToggle.checked = result.replacementEnabled !== false;
+  setPopupDimState();
   setMajorNewsDomainsVisibility();
 
   const savedDomains = Array.isArray(result.majorNewsDomains) ? result.majorNewsDomains : [];
