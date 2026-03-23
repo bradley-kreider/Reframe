@@ -284,12 +284,13 @@ function schedulePendingImageRetry() {
   }, IMAGE_RETRY_INTERVAL_MS);
 }
 
-function queuePairedImageReplacement(contextNode, imageUrl) {
+function queuePairedImageReplacement(contextNode, imageUrl, articleUrl) {
   if (!contextNode || !imageUrl) return;
 
   pendingImageReplacements.add({
     contextNode,
     imageUrl,
+    articleUrl: articleUrl || null,
     attemptsRemaining: IMAGE_RETRY_MAX_ATTEMPTS,
   });
   schedulePendingImageRetry();
@@ -302,7 +303,7 @@ function processPendingImageReplacements() {
   for (const task of pendingImageReplacements) {
     if (!task.contextNode?.isConnected) continue;
 
-    const didReplace = replacePairedImage(task.contextNode, task.imageUrl);
+    const didReplace = replacePairedImage(task.contextNode, task.imageUrl, task.articleUrl);
     if (!didReplace && task.attemptsRemaining > 1) {
       task.attemptsRemaining -= 1;
       nextPending.add(task);
@@ -402,9 +403,9 @@ async function replaceMatch(match) {
     }
 
     if (response.articleImageUrl) {
-      const didReplaceImage = replacePairedImage(replacement, response.articleImageUrl);
+      const didReplaceImage = replacePairedImage(replacement, response.articleImageUrl, response.articleUrl);
       if (!didReplaceImage) {
-        queuePairedImageReplacement(replacement, response.articleImageUrl);
+        queuePairedImageReplacement(replacement, response.articleImageUrl, response.articleUrl);
       }
     }
   } catch (err) {
@@ -412,7 +413,7 @@ async function replaceMatch(match) {
   }
 }
 
-function replacePairedImage(contextNode, imageUrl) {
+function replacePairedImage(contextNode, imageUrl, articleUrl) {
   // Some pages block non-https mixed content images.
   if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
     return false;
@@ -494,6 +495,17 @@ function replacePairedImage(contextNode, imageUrl) {
   pairedImage.setAttribute("data-src", normalizedImageUrl);
   pairedImage.setAttribute("data-srcset", normalizedImageUrl);
   pairedImage.setAttribute("loading", "eager");
+
+  if (articleUrl) {
+    const imageAnchor = pairedImage.closest("a[href]");
+    if (imageAnchor) {
+      imageAnchor.href = articleUrl;
+      imageAnchor.target = "_blank";
+      imageAnchor.rel = "noopener noreferrer";
+    }
+
+    pairedImage.setAttribute("data-zjs-href", articleUrl);
+  }
 
   const imageWrapper = pairedImage.closest("[data-url]");
   if (imageWrapper) {
