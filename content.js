@@ -2,17 +2,26 @@ const SKIP_TAGS = new Set([
   "SCRIPT", "STYLE", "TEXTAREA", "INPUT", "CODE", "NOSCRIPT", "PRE",
 ]);
 const MAX_MATCHES_PER_SCAN = 50;
+const MAX_CONCURRENT_REPLACEMENTS = 3;
 const DEBOUNCE_MS = 500;
+const ADAPTIVE_RESCAN_BASE_MS = 700;
+const ADAPTIVE_RESCAN_MAX_MS = 5000;
+const ADAPTIVE_RESCAN_MAX_ATTEMPTS = 6;
 const IMAGE_RETRY_INTERVAL_MS = 1000;
 const IMAGE_RETRY_MAX_ATTEMPTS = 20;
+const DESCRIPTION_CONTAINER_SELECTORS = "[data-editable='description'], .container__description, .container_list-images-with-description__description";
+const CARD_CONTAINER_SELECTORS = "li[data-uri], article, [data-component-name='card'], li[class*='container__item'], [class*='card']";
 
 let blacklist = [];
 let whitelist = [];
 let blacklistRegex = null;
 let scanning = false;
+let queuedScanRequested = false;
 let newsApiKey = null;
 let replacementEnabled = true;
 let restrictToMajorNews = false;
+let adaptiveRescanTimer = null;
+let adaptiveRescanAttempt = 0;
 let pendingImageRetryTimer = null;
 const pendingImageReplacements = new Set();
 
@@ -108,6 +117,7 @@ function getTextNodes() {
       if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
       if (SKIP_TAGS.has(node.parentElement?.tagName)) return NodeFilter.FILTER_REJECT;
       if (node.parentElement?.closest("[data-reframe-replaced]")) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest("[data-reframe-container-replaced='true']")) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -116,9 +126,49 @@ function getTextNodes() {
   return nodes;
 }
 
+function getReplacementContainer(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return null;
+  return node.closest(CARD_CONTAINER_SELECTORS);
+}
+
+function getContainerKey(container) {
+  if (!container) return null;
+  return (
+    container.getAttribute("data-open-link") ||
+    container.querySelector("a[href]")?.getAttribute("href") ||
+    container.getAttribute("data-uri") ||
+    null
+  );
+}
+
+function isDescriptionNode(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+  return Boolean(node.closest(DESCRIPTION_CONTAINER_SELECTORS));
+}
+
+function updateCardDescription(container, descriptionText, replacementNode) {
+  if (!container || !descriptionText) return;
+
+  const descriptionElement = container.querySelector(DESCRIPTION_CONTAINER_SELECTORS);
+  if (!descriptionElement) return;
+
+  // Avoid overwriting the node we just replaced.
+  if (replacementNode && (descriptionElement === replacementNode || descriptionElement.contains(replacementNode))) {
+    return;
+  }
+
+  const nextText = String(descriptionText).trim();
+  if (!nextText) return;
+
+  descriptionElement.textContent = nextText;
+  descriptionElement.setAttribute("data-reframe-replaced", "true");
+}
+
 function findMatches(textNodes) {
   if (!blacklistRegex) return [];
   const matches = [];
+  const containerMatchIndexByKey = new Map();
+
   for (const node of textNodes) {
     if (matches.length >= MAX_MATCHES_PER_SCAN) break;
     blacklistRegex.lastIndex = 0;
@@ -140,11 +190,90 @@ function findMatches(textNodes) {
         }
       }
       if (matchedItems.length > 0) {
-        matches.push({ node, text: node.textContent, matchedTerms: matchedItems });
+        const element = node.parentElement;
+        const container = getReplacementContainer(element);
+        const containerKey = getContainerKey(container);
+        const description = isDescriptionNode(element);
+
+        if (container?.getAttribute("data-reframe-container-replaced") === "true") {
+          continue;
+        }
+
+        if (containerKey) {
+          if (containerMatchIndexByKey.has(containerKey)) {
+            const existingIndex = containerMatchIndexByKey.get(containerKey);
+            const existing = matches[existingIndex];
+            // Prefer replacing headline/title text over description text in the same card.
+            if (existing?.isDescription && !description) {
+              matches[existingIndex] = {
+                node,
+                text: node.textContent,
+                matchedTerms: matchedItems,
+                container,
+                containerKey,
+                isDescription: description,
+              };
+            }
+            continue;
+          }
+
+          containerMatchIndexByKey.set(containerKey, matches.length);
+        }
+
+        matches.push({
+          node,
+          text: node.textContent,
+          matchedTerms: matchedItems,
+          container,
+          containerKey,
+          isDescription: description,
+        });
       }
     }
   }
   return matches;
+}
+
+function resetAdaptiveRescan() {
+  adaptiveRescanAttempt = 0;
+  if (adaptiveRescanTimer) {
+    clearTimeout(adaptiveRescanTimer);
+    adaptiveRescanTimer = null;
+  }
+}
+
+function scheduleAdaptiveRescan(reason) {
+  if (adaptiveRescanTimer || adaptiveRescanAttempt >= ADAPTIVE_RESCAN_MAX_ATTEMPTS) {
+    return;
+  }
+
+  const delay = Math.min(
+    ADAPTIVE_RESCAN_BASE_MS * Math.pow(2, adaptiveRescanAttempt),
+    ADAPTIVE_RESCAN_MAX_MS
+  );
+
+  console.log("[Reframe] Scheduling adaptive rescan:", { reason, delay, attempt: adaptiveRescanAttempt + 1 });
+
+  adaptiveRescanTimer = setTimeout(() => {
+    adaptiveRescanTimer = null;
+    adaptiveRescanAttempt += 1;
+    scanPage();
+  }, delay);
+}
+
+async function replaceMatchesConcurrently(matches) {
+  if (!matches.length) return;
+
+  let index = 0;
+  const workerCount = Math.min(MAX_CONCURRENT_REPLACEMENTS, matches.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (index < matches.length) {
+      const current = matches[index++];
+      await replaceMatch(current);
+    }
+  });
+
+  await Promise.all(workers);
 }
 
 function schedulePendingImageRetry() {
@@ -189,6 +318,10 @@ function processPendingImageReplacements() {
 
 async function replaceMatch(match) {
   try {
+    if (match.container?.getAttribute("data-reframe-container-replaced") === "true") {
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({
       action: "getReplacements",
       text: match.text,
@@ -212,9 +345,11 @@ async function replaceMatch(match) {
     // Make sure the node is still in the DOM
     if (!match.node.parentElement) return;
     const contextElement = match.node.parentElement;
+    const existingAnchor = contextElement.closest("a[href]");
 
     let replacement;
-    if (response.articleUrl) {
+    const insideExistingAnchor = Boolean(existingAnchor);
+    if (response.articleUrl && !insideExistingAnchor) {
       replacement = document.createElement("a");
       replacement.href = response.articleUrl;
       replacement.target = "_blank";
@@ -246,8 +381,25 @@ async function replaceMatch(match) {
     });
     
     replacement.title = "Reframed content (original contained: " + match.matchedTerms.map(t => t.value).join(", ") + ")";
+
+    if (response.articleUrl && insideExistingAnchor && existingAnchor) {
+      existingAnchor.href = response.articleUrl;
+      existingAnchor.target = "_blank";
+      existingAnchor.rel = "noopener noreferrer";
+    }
     
     contextElement.replaceChild(replacement, match.node);
+
+    if (match.container) {
+      if (response.articleDescription) {
+        updateCardDescription(match.container, response.articleDescription, replacement);
+      }
+
+      match.container.setAttribute("data-reframe-container-replaced", "true");
+      if (match.containerKey) {
+        match.container.setAttribute("data-reframe-container-key", match.containerKey);
+      }
+    }
 
     if (response.articleImageUrl) {
       const didReplaceImage = replacePairedImage(replacement, response.articleImageUrl);
@@ -352,48 +504,65 @@ function replacePairedImage(contextNode, imageUrl) {
 }
 
 async function scanPage() {
-  if (scanning) return;
+  if (scanning) {
+    queuedScanRequested = true;
+    return;
+  }
   scanning = true;
 
-  await loadPreferences();
+  try {
+    await loadPreferences();
 
-  if (!replacementEnabled) {
+    if (!replacementEnabled) {
+      resetAdaptiveRescan();
+      return;
+    }
+
+    if (restrictToMajorNews && !isMajorNewsWebsite(window.location.hostname)) {
+      resetAdaptiveRescan();
+      return;
+    }
+
+    if (!blacklistRegex || !whitelist.length) {
+      scheduleAdaptiveRescan("preferences-not-ready");
+      return;
+    }
+
+    console.log("[Reframe] Scanning page...");
+    const textNodes = getTextNodes();
+    const matches = findMatches(textNodes);
+    console.log("[Reframe] Found", matches.length, "matches");
+
+    // Small worker pool improves throughput while avoiding request floods.
+    await replaceMatchesConcurrently(matches);
+
+    if (matches.length === 0 && document.readyState !== "complete") {
+      scheduleAdaptiveRescan("page-still-loading");
+    } else if (matches.length === 0 && textNodes.length < 40) {
+      scheduleAdaptiveRescan("low-text-density");
+    } else {
+      resetAdaptiveRescan();
+    }
+
+    console.log("[Reframe] Scan complete");
+  } finally {
     scanning = false;
-    return;
+    if (queuedScanRequested) {
+      queuedScanRequested = false;
+      setTimeout(() => scanPage(), 0);
+    }
   }
-
-  if (restrictToMajorNews && !isMajorNewsWebsite(window.location.hostname)) {
-    scanning = false;
-    return;
-  }
-
-  if (!blacklistRegex || !whitelist.length) {
-    scanning = false;
-    return;
-  }
-
-  console.log("[Reframe] Scanning page...");
-  const textNodes = getTextNodes();
-  const matches = findMatches(textNodes);
-  console.log("[Reframe] Found", matches.length, "matches");
-
-  // Process replacements sequentially to avoid overwhelming Grok
-  for (const match of matches) {
-    await replaceMatch(match);
-  }
-
-  scanning = false;
-  console.log("[Reframe] Scan complete");
 }
 
 // --- MutationObserver (debounced) ---
 let debounceTimer = null;
 
-const observer = new MutationObserver(() => {
+const observer = new MutationObserver((mutations) => {
+  const dynamicDelay = Math.min(DEBOUNCE_MS + mutations.length * 25, 1500);
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     scanPage();
-  }, DEBOUNCE_MS);
+  }, dynamicDelay);
 
   if (pendingImageReplacements.size) {
     processPendingImageReplacements();
@@ -422,5 +591,9 @@ scanPage().then(() => {
   observer.observe(document.body, {
     childList: true,
     subtree: true,
+    characterData: true,
   });
+
+  // Run a follow-up adaptive scan after observer attachment for late-hydrated pages.
+  scheduleAdaptiveRescan("observer-attached");
 });

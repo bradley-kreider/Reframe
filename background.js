@@ -3,11 +3,23 @@ importScripts("db.js");
 const XAI_BASE = "https://api.x.ai/v1";
 const XAI_MODEL = "grok-4-1-fast-non-reasoning";
 const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
+const NEWSAPI_FETCH_TIMEOUT_MS = 5000;
+const ARTICLE_FETCH_ATTEMPTS = 1;
+const ARTICLE_PAGE_VARIETY = 3;
 
 // Cache keyed by topic, lives for the duration of the service worker session
 const newsApiCache = {};
 const usedArticleUrls = new Set();
 let replacementCount = 0;
+let lengthAdjustSecondPassEnabled = null;
+let whitelistRotationCursor = 0;
+
+const STOPWORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "about", "your", "their",
+  "will", "have", "has", "had", "are", "was", "were", "been", "being", "you", "they",
+  "them", "his", "her", "its", "our", "not", "but", "can", "all", "any", "who", "how",
+  "when", "what", "where", "why", "after", "before", "over", "under", "than", "then",
+]);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("[Reframe] Background received message:", message.action);
@@ -102,6 +114,7 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
   const resolvedNewsApiKey = await resolveNewsApiKey(newsApiKey);
 
   if (!resolvedNewsApiKey) {
+    console.error("[Reframe] NewsAPI failure: API key missing, cannot fetch replacement article.");
     return {
       success: false,
       error: "NewsAPI key is missing. Set it in the popup to enable article-based replacements.",
@@ -114,6 +127,10 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
 
   // Strict mode: only replace when we have a reference article.
   if (!articleResult || !articleResult.title) {
+    console.error("[Reframe] NewsAPI failure: no article returned for replacement.", {
+      matchedTerms: safeMatchedTerms,
+      whitelist: safeWhitelist,
+    });
     return {
       success: false,
       error: "No replacement article available; skipping replacement.",
@@ -128,7 +145,13 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
 
   if (!xaiResult.success) return xaiResult;
 
-  const normalizedReplacement = await enforceSimilarLength(originalText, xaiResult.replacement);
+  const groundedReplacement = ensureGroundedReplacement(
+    xaiResult.replacement,
+    articleResult,
+    originalText
+  );
+
+  const normalizedReplacement = await enforceSimilarLength(originalText, groundedReplacement);
 
   replacementCount++;
   return {
@@ -136,12 +159,72 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
     replacement: normalizedReplacement,
     articleUrl: articleResult?.url || null,
     articleImageUrl: articleResult?.imageUrl || null,
+    articleDescription: articleResult?.description || articleResult?.title || null,
   };
 }
 
 function wordCount(text) {
   const words = (text || "").trim().split(/\s+/).filter(Boolean);
   return words.length;
+}
+
+function tokenizeSignificant(text) {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 3 && !STOPWORDS.has(token));
+}
+
+function trimToWordCount(text, targetWords) {
+  const words = (text || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  if (!targetWords || words.length <= targetWords) return words.join(" ");
+  return words.slice(0, targetWords).join(" ");
+}
+
+function buildDescriptionFallback(article, originalText) {
+  const description = (article?.description || "").trim();
+  const title = (article?.title || "").trim();
+  const baseline = description || title;
+  if (!baseline) return "";
+
+  const targetWords = Math.max(8, Math.ceil(wordCount(originalText) * 1.05));
+  return trimToWordCount(baseline, targetWords);
+}
+
+function ensureGroundedReplacement(candidate, article, originalText) {
+  const replacement = (candidate || "").trim();
+  if (!replacement) {
+    return buildDescriptionFallback(article, originalText);
+  }
+
+  const referenceText = [article?.title || "", article?.description || ""].join(" ").trim();
+  const referenceTokens = new Set(tokenizeSignificant(referenceText));
+  const replacementTokens = tokenizeSignificant(replacement);
+
+  if (!referenceTokens.size || !replacementTokens.length) {
+    return buildDescriptionFallback(article, originalText);
+  }
+
+  let overlap = 0;
+  for (const token of replacementTokens) {
+    if (referenceTokens.has(token)) overlap += 1;
+  }
+
+  const overlapRatio = overlap / Math.max(1, replacementTokens.length);
+  const grounded = overlap >= 2 || overlapRatio >= 0.2;
+
+  if (!grounded) {
+    console.warn("[Reframe] Replacement not grounded in article description/title; using fallback summary.", {
+      replacement,
+      articleTitle: article?.title || null,
+      articleDescription: article?.description || null,
+    });
+    return buildDescriptionFallback(article, originalText);
+  }
+
+  return replacement;
 }
 
 async function enforceSimilarLength(originalText, replacementText) {
@@ -155,6 +238,10 @@ async function enforceSimilarLength(originalText, replacementText) {
   const maxWords = Math.ceil(originalWords * 1.35);
 
   if (replacementWords >= minWords && replacementWords <= maxWords) {
+    return replacementText;
+  }
+
+  if (!(await isLengthAdjustSecondPassEnabled())) {
     return replacementText;
   }
 
@@ -179,9 +266,25 @@ async function enforceSimilarLength(originalText, replacementText) {
   return replacementText;
 }
 
+async function isLengthAdjustSecondPassEnabled() {
+  if (lengthAdjustSecondPassEnabled !== null) {
+    return lengthAdjustSecondPassEnabled;
+  }
+
+  try {
+    const result = await chrome.storage.local.get("lengthAdjustSecondPassEnabled");
+    lengthAdjustSecondPassEnabled = Boolean(result.lengthAdjustSecondPassEnabled);
+  } catch {
+    lengthAdjustSecondPassEnabled = false;
+  }
+
+  return lengthAdjustSecondPassEnabled;
+}
+
 async function fetchXaiNonReasoning(prompt) {
   const xaiApiKey = await resolveXaiApiKey();
   if (!xaiApiKey) {
+    console.error("[Reframe] xAI failure: API key missing, cannot request completion.");
     return {
       success: false,
       error: "xAI API key is missing. Add it in the popup to enable replacements.",
@@ -194,14 +297,14 @@ async function fetchXaiNonReasoning(prompt) {
     messages: [
       {
         role: "system",
-        content: "You rewrite text to satisfy constraints. Return only plain rewritten text with no quotes or commentary.",
+        content: "You produce factual rewrites grounded only in provided article title/description. Never invent details. Return plain text only.",
       },
       {
         role: "user",
         content: prompt,
       },
     ],
-    temperature: 0.3,
+    temperature: 0.1,
     max_tokens: 320,
   };
   console.log("[Reframe] Request body:", JSON.stringify(requestBody, null, 2));
@@ -235,6 +338,10 @@ async function fetchXaiNonReasoning(prompt) {
 
     const cleaned = (text || "").trim();
     if (!cleaned) {
+      console.error("[Reframe] xAI failure: empty completion payload.", {
+        hasChoices: Array.isArray(data?.choices),
+        firstChoice: data?.choices?.[0] || null,
+      });
       return { success: false, error: "xAI returned an empty completion." };
     }
 
@@ -271,9 +378,9 @@ async function fetchArticle(topic, apiKey) {
 
   console.log("[Reframe] Fetching new article batch for topic:", topic);
 
-  // Try a few pages to maximize chance of a unique, non-reused article.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const page = 1 + Math.floor(Math.random() * 5);
+  // Keep retries tight so one replacement does not stall for many round trips.
+  for (let attempt = 0; attempt < ARTICLE_FETCH_ATTEMPTS; attempt++) {
+    const page = 1 + Math.floor(Math.random() * ARTICLE_PAGE_VARIETY);
     const freshBatch = await fetchArticleBatch(topic, apiKey, page);
     if (!freshBatch.length) continue;
 
@@ -288,6 +395,9 @@ async function fetchArticle(topic, apiKey) {
 }
 
 async function fetchArticleBatch(topic, apiKey, page) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), NEWSAPI_FETCH_TIMEOUT_MS);
+
   try {
     const url =
       NEWSAPI_BASE +
@@ -295,7 +405,7 @@ async function fetchArticleBatch(topic, apiKey, page) {
       "&language=en&sortBy=publishedAt&pageSize=20&page=" + page +
       "&apiKey=" + apiKey;
 
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
       const errorText = await res.text();
       console.warn("[Reframe] NewsAPI returned", res.status, "for topic", topic, errorText);
@@ -313,8 +423,15 @@ async function fetchArticleBatch(topic, apiKey, page) {
       }));
 
     return articles;
-  } catch {
+  } catch (err) {
+    console.error("[Reframe] NewsAPI request failed for topic/page:", {
+      topic,
+      page,
+      error: err?.message || String(err),
+    });
     return [];
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -376,7 +493,9 @@ function buildPrompt(originalText, matchedTerms, whitelist, article) {
   const targetMax = Math.ceil(originalWordTotal * 1.15);
 
   let prompt = (
-    "You are a content replacement assistant. Rewrite content to be ONLY about the provided reference article.\n\n" +
+    "You are a content replacement assistant. Rewrite content as a concise factual summary of the REFERENCE ARTICLE DESCRIPTION.\n" +
+    "Do not invent events, quotes, statistics, or background details.\n" +
+    "If the description is short, stay short and precise.\n\n" +
     "BLACKLISTED TERMS FOUND: " + formattedMatchedTerms + "\n" +
     'ORIGINAL TEXT: "' + originalText + '"\n' +
     "USER'S WHITELISTED PREFERENCES:\n" +
@@ -396,10 +515,9 @@ function buildPrompt(originalText, matchedTerms, whitelist, article) {
   }
 
   prompt += (
-    "\nWrite new text that is strictly about the reference article only. " +
-    "Do not mention unrelated topics, and do not invent details not supported by the reference article title/description. " +
-    "Use natural wording that sounds like normal article copy, not a template. " +
-    "Keep the overall tone and intent of the original text. " +
+    "\nWrite text that is strictly about the reference article title/description only. " +
+    "Keep it factual and summary-like. " +
+    "Do not add external narrative or promotion. " +
     "Target " + originalWordTotal + " words (acceptable range: " + targetMin + "-" + targetMax + "). " +
     "Only output the rewritten text."
   );
@@ -452,7 +570,15 @@ function buildMatchedTermSearchTerms(matchedTerms) {
 async function getBestReplacementArticle(whitelist, matchedTerms, apiKey) {
   const whitelistTerms = buildReplacementSearchTerms(whitelist);
   const blacklistMatchedTerms = buildMatchedTermSearchTerms(matchedTerms);
-  const allTerms = [...whitelistTerms, ...blacklistMatchedTerms];
+  const rotatedWhitelistTerms = whitelistTerms.length
+    ? rotateTerms(whitelistTerms, whitelistRotationCursor)
+    : [];
+
+  if (whitelistTerms.length) {
+    whitelistRotationCursor = (whitelistRotationCursor + 1) % whitelistTerms.length;
+  }
+
+  const allTerms = [...rotatedWhitelistTerms, ...blacklistMatchedTerms];
 
   const seen = new Set();
   const searchTerms = allTerms.filter((term) => {
@@ -477,5 +603,15 @@ async function getBestReplacementArticle(whitelist, matchedTerms, apiKey) {
     }
   }
 
+  console.error("[Reframe] NewsAPI failure: exhausted search terms without finding article.", {
+    searchTerms,
+  });
+
   return null;
+}
+
+function rotateTerms(terms, offset) {
+  if (!terms.length) return terms;
+  const start = ((offset % terms.length) + terms.length) % terms.length;
+  return [...terms.slice(start), ...terms.slice(0, start)];
 }
