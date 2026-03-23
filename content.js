@@ -362,8 +362,7 @@ async function replaceMatch(match) {
     replacement.setAttribute("data-reframe-replaced", "true");
     
     // Copy computed styles from parent to match seamlessly
-    const parent = contextElement;
-    const computedStyle = window.getComputedStyle(parent);
+    const computedStyle = window.getComputedStyle(contextElement);
     const stylesToCopy = [
       "color",
       "fontSize",
@@ -444,7 +443,7 @@ function replacePairedImage(contextNode, imageUrl, articleUrl) {
     const height = Math.max(img.naturalHeight || 0, img.height || 0, img.offsetHeight || 0, rect.height || 0);
     const isVisible = rect.width > 0 && rect.height > 0;
 
-    // Skip tiny icons and hidden tracking pixels.
+    // Skip tiny icons and hidden tracking pixels. Hard coded
     return width > 120 && height > 80 && isVisible;
   });
 

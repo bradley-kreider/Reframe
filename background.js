@@ -139,9 +139,6 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
     };
   }
 
-  // Build prompt with article information for context
-  const prompt = buildPrompt(originalText, safeMatchedTerms, safeWhitelist, articleResult);
-
   if (USE_NEWSAPI_TITLE_ONLY) {
     replacementCount++;
     return {
@@ -152,6 +149,9 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
       articleDescription: articleResult?.description || articleResult?.title || null,
     };
   }
+
+  // Build prompt with article information for context
+  const prompt = buildPrompt(originalText, safeMatchedTerms, safeWhitelist, articleResult);
 
   // Then fetch LLM replacement based on the article
   const xaiResult = await fetchXaiNonReasoning(prompt);
