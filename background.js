@@ -6,6 +6,8 @@ const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
 const NEWSAPI_FETCH_TIMEOUT_MS = 5000;
 const ARTICLE_FETCH_ATTEMPTS = 1;
 const ARTICLE_PAGE_VARIETY = 3;
+// set false to use xAI
+const USE_NEWSAPI_TITLE_ONLY = true;
 
 // Cache keyed by topic, lives for the duration of the service worker session
 const newsApiCache = {};
@@ -139,6 +141,17 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
 
   // Build prompt with article information for context
   const prompt = buildPrompt(originalText, safeMatchedTerms, safeWhitelist, articleResult);
+
+  if (USE_NEWSAPI_TITLE_ONLY) {
+    replacementCount++;
+    return {
+      success: true,
+      replacement: (articleResult.title || "").trim(),
+      articleUrl: articleResult?.url || null,
+      articleImageUrl: articleResult?.imageUrl || null,
+      articleDescription: articleResult?.description || articleResult?.title || null,
+    };
+  }
 
   // Then fetch LLM replacement based on the article
   const xaiResult = await fetchXaiNonReasoning(prompt);
