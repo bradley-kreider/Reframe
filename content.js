@@ -413,12 +413,16 @@ async function replaceMatch(match) {
 }
 
 function replacePairedImage(contextNode, imageUrl, articleUrl) {
-  // Some pages block non-https mixed content images.
-  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+  // Accept both http/https and data: URLs
+  const isHttpImage = /^https?:\/\//i.test(imageUrl || "");
+  const isDataImage = /^data:image\//i.test(imageUrl || "");
+  if (!imageUrl || (!isHttpImage && !isDataImage)) {
     return false;
   }
 
-  const normalizedImageUrl = imageUrl.replace(/^http:\/\//i, "https://");
+  const normalizedImageUrl = isHttpImage
+    ? imageUrl.replace(/^http:\/\//i, "https://")
+    : imageUrl;
 
   const sourceElement = contextNode?.nodeType === Node.ELEMENT_NODE ? contextNode : contextNode?.parentElement;
   if (!sourceElement) return false;

@@ -5,7 +5,8 @@ const XAI_MODEL = "grok-4-1-fast-non-reasoning";
 
 // const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
 // custom API
-const NEWSAPI_BASE = "http://localhost:4000/v2/everything";
+// const NEWSAPI_BASE = "http://localhost:4000/v2/everything";
+const NEWSAPI_BASE = "https://newsfeed-hhtk.onrender.com"; // CUSTOM LIVE API BOIIII I TELL YOU WHAT
 
 const NEWSAPI_FETCH_TIMEOUT_MS = 5000;
 const ARTICLE_FETCH_ATTEMPTS = 3;
