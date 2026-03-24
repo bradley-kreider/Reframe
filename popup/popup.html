@@ -18,9 +18,9 @@
         <span>Reframe</span>
       </h1>
     </div>
-    <div id="grok-status" class="status disconnected">
+    <div id="custom-api-status" class="status disconnected">
       <span class="status-dot"></span>
-      <span id="status-text">Checking xAI...</span>
+      <span id="status-text">Checking API...</span>
     </div>
   </header>
 
@@ -77,20 +77,6 @@
       <button id="clear-cache-btn">Clear Article Cache</button>
     </div>
     <p class="settings-hint">Clear the cached NewsAPI articles. Useful for testing or freeing up memory.</p>
-
-    <label for="xai-api-key">xAI API Key</label>
-    <div class="settings-row">
-      <input type="password" id="xai-api-key" placeholder="Paste your xAI API key...">
-      <button id="save-xai-api-key-btn">Save</button>
-    </div>
-    <p class="settings-hint">Used for non-reasoning replacements via grok-4-1-fast-non-reasoning.</p>
-
-    <label for="news-api-key">NewsAPI Key</label>
-    <div class="settings-row">
-      <input type="password" id="news-api-key" placeholder="Paste your NewsAPI key...">
-      <button id="save-api-key-btn">Save</button>
-    </div>
-    <p class="settings-hint">Used to find real replacement articles. Get a free key at <span class="settings-link">newsapi.org</span></p>
   </div>
 
   <script src="../db.js"></script>

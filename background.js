@@ -30,8 +30,8 @@ const STOPWORDS = new Set([
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("[Reframe] Background received message:", message.action);
-  if (message.action === "checkGrokStatus") {
-    checkGrok().then(sendResponse);
+  if (message.action === "checkCustomApiStatus") {
+    checkCustomApiHeartbeat().then(sendResponse);
     return true; // async
   }
 
@@ -95,21 +95,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-async function checkGrok() {
-  const xaiApiKey = await resolveXaiApiKey();
-  if (!xaiApiKey) return { connected: false };
-
+async function checkCustomApiHeartbeat() {
+  const endpoints = [
+    NEWSAPI_BASE + "/health",
+    NEWSAPI_BASE + "/heartbeat",
+    NEWSAPI_BASE,
+  ];
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(XAI_BASE + "/models", {
-      headers: {
-        Authorization: "Bearer " + xaiApiKey,
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    return { connected: res.ok };
+    for (const endpoint of endpoints) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(endpoint, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          clearTimeout(timeout);
+          return { connected: true, endpoint };
+        }
+      } catch {
+        // Try next endpoint.
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    return { connected: false };
   } catch {
     return { connected: false };
   }

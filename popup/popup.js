@@ -29,7 +29,7 @@ const addForm = document.getElementById("add-form");
 const prefType = document.getElementById("pref-type");
 const prefValue = document.getElementById("pref-value");
 const clearAllBtn = document.getElementById("clear-all-btn");
-const statusEl = document.getElementById("grok-status");
+const statusEl = document.getElementById("custom-api-status");
 const statusText = document.getElementById("status-text");
 const replacementCountEl = document.getElementById("replacement-count");
 const replacementEnabledToggle = document.getElementById("replacement-enabled-toggle");
@@ -163,22 +163,22 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// --- Grok status ---
-async function checkGrokStatus() {
+// --- Custom API heartbeat ---
+async function checkCustomApiStatus() {
   statusEl.className = "status checking";
   statusText.textContent = "Checking...";
   try {
-    const response = await chrome.runtime.sendMessage({ action: "checkGrokStatus" });
+    const response = await chrome.runtime.sendMessage({ action: "checkCustomApiStatus" });
     if (response && response.connected) {
       statusEl.className = "status connected";
-      statusText.textContent = "xAI Connected";
+      statusText.textContent = "API Connected";
     } else {
       statusEl.className = "status disconnected";
-      statusText.textContent = "xAI Disconnected";
+      statusText.textContent = "API Disconnected";
     }
   } catch {
     statusEl.className = "status disconnected";
-    statusText.textContent = "xAI Disconnected";
+    statusText.textContent = "API Disconnected";
   }
 }
 
@@ -186,11 +186,6 @@ function notifyPreferencesUpdated() {
   chrome.runtime.sendMessage({ action: "preferencesUpdated" }).catch(() => {});
 }
 
-// --- NewsAPI key ---
-const newsApiKeyInput = document.getElementById("news-api-key");
-const saveApiKeyBtn = document.getElementById("save-api-key-btn");
-const xaiApiKeyInput = document.getElementById("xai-api-key");
-const saveXaiApiKeyBtn = document.getElementById("save-xai-api-key-btn");
 const majorNewsOnlyToggle = document.getElementById("major-news-only-toggle");
 const majorNewsDomainsSection = document.getElementById("major-news-domains-section");
 const majorNewsDomainValue = document.getElementById("major-news-domain-value");
@@ -309,25 +304,8 @@ majorNewsDomainValue.addEventListener("keydown", async (e) => {
   }
 });
 
-saveApiKeyBtn.addEventListener("click", async () => {
-  const key = newsApiKeyInput.value.trim();
-  await chrome.storage.local.set({ newsApiKey: key });
-  saveApiKeyBtn.textContent = "Saved!";
-  setTimeout(() => { saveApiKeyBtn.textContent = "Save"; }, 1500);
-});
-
-saveXaiApiKeyBtn.addEventListener("click", async () => {
-  const key = xaiApiKeyInput.value.trim();
-  await chrome.storage.local.set({ xaiApiKey: key });
-  saveXaiApiKeyBtn.textContent = "Saved!";
-  setTimeout(() => { saveXaiApiKeyBtn.textContent = "Save"; }, 1500);
-  checkGrokStatus();
-});
-
-async function loadApiKey() {
-  const result = await chrome.storage.local.get(["newsApiKey", "xaiApiKey", "restrictToMajorNews", "majorNewsDomains", "replacementEnabled"]);
-  if (result.newsApiKey) newsApiKeyInput.value = result.newsApiKey;
-  if (result.xaiApiKey) xaiApiKeyInput.value = result.xaiApiKey;
+async function loadSettings() {
+  const result = await chrome.storage.local.get(["restrictToMajorNews", "majorNewsDomains", "replacementEnabled"]);
   majorNewsOnlyToggle.checked = Boolean(result.restrictToMajorNews);
   replacementEnabledToggle.checked = result.replacementEnabled !== false;
   setPopupDimState();
@@ -355,5 +333,5 @@ clearCacheBtn.addEventListener("click", async () => {
 
 // --- Init ---
 renderList();
-checkGrokStatus();
-loadApiKey();
+checkCustomApiStatus();
+loadSettings();

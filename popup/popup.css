@@ -463,21 +463,6 @@ footer {
   border-color: var(--brand-amber);
 }
 
-#save-api-key-btn,
-#save-xai-api-key-btn {
-  padding: 6px 14px;
-  background: linear-gradient(135deg, var(--brand-slate), var(--brand-slate-soft));
-  color: #f8fbff;
-  border: none;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-#save-api-key-btn:hover,
-#save-xai-api-key-btn:hover { filter: brightness(1.08); }
-
 #add-major-news-domain-btn {
   align-self: flex-end;
   padding: 6px 14px;
