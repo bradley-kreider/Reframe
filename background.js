@@ -8,7 +8,7 @@ const XAI_MODEL = "grok-4-1-fast-non-reasoning";
 const NEWSAPI_BASE = "http://localhost:4000/v2/everything";
 
 const NEWSAPI_FETCH_TIMEOUT_MS = 5000;
-const ARTICLE_FETCH_ATTEMPTS = 1;
+const ARTICLE_FETCH_ATTEMPTS = 3;
 const ARTICLE_PAGE_VARIETY = 3;
 // set false to use xAI
 const USE_NEWSAPI_TITLE_ONLY = true;
@@ -400,6 +400,14 @@ async function fetchArticle(topic, apiKey, options = {}) {
     return cachedPick;
   }
 
+  // When all safe candidates were already used, allow safe reuse so replacements
+  // keep flowing instead of stalling partway through long pages.
+  const reusablePick = pickReusableArticleFromPool(pool, blacklistTerms);
+  if (reusablePick) {
+    console.log("[Reframe] Reusing safe cached article for topic:", topic);
+    return reusablePick;
+  }
+
   console.log("[Reframe] Fetching new article batch for topic:", topic);
 
   // Keep retries tight so one replacement does not stall for many round trips.
@@ -417,6 +425,11 @@ async function fetchArticle(topic, apiKey, options = {}) {
     const freshPick = pickUnusedArticleFromPool(pool, blacklistTerms);
     if (freshPick) {
       return freshPick;
+    }
+
+    const reusableFreshPick = pickReusableArticleFromPool(pool, blacklistTerms);
+    if (reusableFreshPick) {
+      return reusableFreshPick;
     }
   }
 
@@ -479,10 +492,15 @@ async function fetchArticleBatch(topic, apiKey, page, options = {}) {
 
     return articles;
   } catch (err) {
-    console.error("[Reframe] NewsAPI request failed for topic/page:", {
+    const errorMessage =
+      typeof err === "string"
+        ? err
+        : err?.message || err?.name || JSON.stringify(err);
+    console.error("[Reframe] newsFeed request failed for topic/page:", {
       topic,
       page,
-      error: err?.message || String(err),
+      errorName: err?.name || null,
+      errorMessage,
     });
     return [];
   } finally {
@@ -517,6 +535,28 @@ function pickUnusedArticleFromPool(pool, blacklistTerms = []) {
     if (articleContainsBlacklistedTerm(article, blacklistTerms)) continue;
     pool.cursor = i + 1;
     usedArticleUrls.add(article.url);
+    return article;
+  }
+
+  return null;
+}
+
+function pickReusableArticleFromPool(pool, blacklistTerms = []) {
+  if (!pool?.articles?.length) return null;
+
+  for (let i = pool.cursor; i < pool.articles.length; i++) {
+    const article = pool.articles[i];
+    if (!article?.url) continue;
+    if (articleContainsBlacklistedTerm(article, blacklistTerms)) continue;
+    pool.cursor = i + 1;
+    return article;
+  }
+
+  for (let i = 0; i < pool.cursor; i++) {
+    const article = pool.articles[i];
+    if (!article?.url) continue;
+    if (articleContainsBlacklistedTerm(article, blacklistTerms)) continue;
+    pool.cursor = i + 1;
     return article;
   }
 
@@ -697,10 +737,17 @@ async function getBestReplacementArticle(whitelist, matchedTerms, apiKey) {
     return safeRandomFallback;
   }
 
-  console.error("[Reframe] newsFeed failure: no safe article found for whitelist intent.", {
+  const failureDetails = {
     searchTerms,
     blacklistMatchedTerms,
-  });
+    whitelistCount: whitelistTerms.length,
+    blacklistCount: blacklistMatchedTerms.length,
+    usedArticleCount: usedArticleUrls.size,
+  };
+  console.error(
+    "[Reframe] newsFeed failure: no safe article found for whitelist intent. " +
+      JSON.stringify(failureDetails)
+  );
 
   return null;
 }
