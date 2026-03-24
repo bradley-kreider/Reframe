@@ -120,10 +120,10 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
   const resolvedNewsApiKey = await resolveNewsApiKey(newsApiKey);
 
   if (!resolvedNewsApiKey) {
-    console.error("[Reframe] NewsAPI failure: API key missing, cannot fetch replacement article.");
+    console.error("[Reframe] newsFeed failure: API key missing, cannot fetch replacement article.");
     return {
       success: false,
-      error: "NewsAPI key is missing. Set it in the popup to enable article-based replacements.",
+      error: "newsFeed API key is missing. Set it in the popup to enable article-based replacements.",
     };
   }
 
@@ -133,7 +133,7 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
 
   // Strict mode: only replace when we have a reference article.
   if (!articleResult || !articleResult.title) {
-    console.error("[Reframe] NewsAPI failure: no article returned for replacement.", {
+    console.error("[Reframe] newsFeed failure: no article returned for replacement.", {
       matchedTerms: safeMatchedTerms,
       whitelist: safeWhitelist,
     });
@@ -462,7 +462,7 @@ async function fetchArticleBatch(topic, apiKey, page, options = {}) {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
       const errorText = await res.text();
-      console.warn("[Reframe] NewsAPI returned", res.status, "for topic", topic, errorText);
+      console.warn("[Reframe] newsFeed returned", res.status, "for topic", topic, errorText);
       return [];
     }
 
@@ -697,7 +697,7 @@ async function getBestReplacementArticle(whitelist, matchedTerms, apiKey) {
     return safeRandomFallback;
   }
 
-  console.error("[Reframe] NewsAPI failure: no safe article found for whitelist intent.", {
+  console.error("[Reframe] newsFeed failure: no safe article found for whitelist intent.", {
     searchTerms,
     blacklistMatchedTerms,
   });
