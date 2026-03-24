@@ -2,7 +2,11 @@ importScripts("db.js");
 
 const XAI_BASE = "https://api.x.ai/v1";
 const XAI_MODEL = "grok-4-1-fast-non-reasoning";
-const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
+
+// const NEWSAPI_BASE = "https://newsapi.org/v2/everything";
+// custom API
+const NEWSAPI_BASE = "http://localhost:4000/v2/everything";
+
 const NEWSAPI_FETCH_TIMEOUT_MS = 5000;
 const ARTICLE_FETCH_ATTEMPTS = 1;
 const ARTICLE_PAGE_VARIETY = 3;
@@ -374,7 +378,14 @@ async function resolveXaiApiKey() {
   }
 }
 
-async function fetchArticle(topic, apiKey) {
+async function fetchArticle(topic, apiKey, options = {}) {
+  const {
+    blacklistTerms = [],
+    whitelistTopics = [],
+    whitelistKeywords = [],
+    whitelistSources = []
+  } = options;
+
   const cacheKey = (topic || "").trim().toLowerCase();
   if (!cacheKey) return null;
 
@@ -383,7 +394,7 @@ async function fetchArticle(topic, apiKey) {
   }
 
   const pool = newsApiCache[cacheKey];
-  const cachedPick = pickUnusedArticleFromPool(pool);
+  const cachedPick = pickUnusedArticleFromPool(pool, blacklistTerms);
   if (cachedPick) {
     console.log("[Reframe] Using cached fresh article for topic:", topic);
     return cachedPick;
@@ -394,11 +405,16 @@ async function fetchArticle(topic, apiKey) {
   // Keep retries tight so one replacement does not stall for many round trips.
   for (let attempt = 0; attempt < ARTICLE_FETCH_ATTEMPTS; attempt++) {
     const page = 1 + Math.floor(Math.random() * ARTICLE_PAGE_VARIETY);
-    const freshBatch = await fetchArticleBatch(topic, apiKey, page);
+    const freshBatch = await fetchArticleBatch(topic, apiKey, page, {
+      blacklistTerms,
+      whitelistTopics,
+      whitelistKeywords,
+      whitelistSources
+    });
     if (!freshBatch.length) continue;
 
     mergeArticleBatch(pool, freshBatch);
-    const freshPick = pickUnusedArticleFromPool(pool);
+    const freshPick = pickUnusedArticleFromPool(pool, blacklistTerms);
     if (freshPick) {
       return freshPick;
     }
@@ -407,16 +423,41 @@ async function fetchArticle(topic, apiKey) {
   return null;
 }
 
-async function fetchArticleBatch(topic, apiKey, page) {
+async function fetchArticleBatch(topic, apiKey, page, options = {}) {
+  const {
+    blacklistTerms = [],
+    whitelistTopics = [],
+    whitelistKeywords = [],
+    whitelistSources = []
+  } = options;
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), NEWSAPI_FETCH_TIMEOUT_MS);
 
   try {
-    const url =
-      NEWSAPI_BASE +
-      "?q=" + encodeURIComponent(topic) +
-      "&language=en&sortBy=publishedAt&pageSize=20&page=" + page +
-      "&apiKey=" + apiKey;
+    const params = new URLSearchParams({
+      q: topic,
+      language: "en",
+      sortBy: "publishedAt",
+      pageSize: "20",
+      page: String(page),
+      apiKey
+    });
+
+    if (blacklistTerms.length) {
+      params.set("blacklistTerms", blacklistTerms.join(","));
+    }
+    if (whitelistTopics.length) {
+      params.set("whitelistTopics", whitelistTopics.join(","));
+    }
+    if (whitelistKeywords.length) {
+      params.set("whitelistKeywords", whitelistKeywords.join(","));
+    }
+    if (whitelistSources.length) {
+      params.set("whitelistSources", whitelistSources.join(","));
+    }
+
+    const url = NEWSAPI_BASE + "?" + params.toString();
 
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
@@ -433,7 +474,8 @@ async function fetchArticleBatch(topic, apiKey, page) {
         imageUrl: article.urlToImage || null,
         title: article.title || null,
         description: article.description || null,
-      }));
+      }))
+      .filter((article) => !articleContainsBlacklistedTerm(article, blacklistTerms));
 
     return articles;
   } catch (err) {
@@ -457,12 +499,13 @@ function mergeArticleBatch(pool, articles) {
   }
 }
 
-function pickUnusedArticleFromPool(pool) {
+function pickUnusedArticleFromPool(pool, blacklistTerms = []) {
   if (!pool?.articles?.length) return null;
 
   for (let i = pool.cursor; i < pool.articles.length; i++) {
     const article = pool.articles[i];
     if (!article?.url || usedArticleUrls.has(article.url)) continue;
+    if (articleContainsBlacklistedTerm(article, blacklistTerms)) continue;
     pool.cursor = i + 1;
     usedArticleUrls.add(article.url);
     return article;
@@ -471,6 +514,7 @@ function pickUnusedArticleFromPool(pool) {
   for (let i = 0; i < pool.cursor; i++) {
     const article = pool.articles[i];
     if (!article?.url || usedArticleUrls.has(article.url)) continue;
+    if (articleContainsBlacklistedTerm(article, blacklistTerms)) continue;
     pool.cursor = i + 1;
     usedArticleUrls.add(article.url);
     return article;
@@ -574,15 +618,43 @@ function buildMatchedTermSearchTerms(matchedTerms) {
     const key = term.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    unique.push(term);
+    unique.push(term.toLowerCase());
   }
 
   return unique;
 }
 
+function articleContainsBlacklistedTerm(article, blacklistTerms) {
+  if (!blacklistTerms?.length) return false;
+  const haystack = `${article?.title || ""} ${article?.description || ""}`.toLowerCase();
+  return blacklistTerms.some((term) => term && haystack.includes(term.toLowerCase()));
+}
+
+function splitWhitelistByType(whitelist) {
+  const safeWhitelist = Array.isArray(whitelist) ? whitelist : [];
+  return {
+    whitelistTopics: safeWhitelist.filter((w) => w.type === "topic").map((w) => String(w.value || "").trim()).filter(Boolean),
+    whitelistKeywords: safeWhitelist.filter((w) => w.type === "keyword").map((w) => String(w.value || "").trim()).filter(Boolean),
+    whitelistSources: safeWhitelist.filter((w) => w.type === "source").map((w) => String(w.value || "").trim()).filter(Boolean),
+  };
+}
+
+async function fetchSafeFallbackArticle(apiKey, blacklistTerms) {
+  const fallbackTerms = ["breaking news", "world news", "current events"];
+  for (const term of fallbackTerms) {
+    const article = await fetchArticle(term, apiKey, { blacklistTerms });
+    if (article && article.title) {
+      return article;
+    }
+  }
+  return null;
+}
+
 async function getBestReplacementArticle(whitelist, matchedTerms, apiKey) {
   const whitelistTerms = buildReplacementSearchTerms(whitelist);
   const blacklistMatchedTerms = buildMatchedTermSearchTerms(matchedTerms);
+  const { whitelistTopics, whitelistKeywords, whitelistSources } = splitWhitelistByType(whitelist);
+
   const rotatedWhitelistTerms = whitelistTerms.length
     ? rotateTerms(whitelistTerms, whitelistRotationCursor)
     : [];
@@ -591,18 +663,16 @@ async function getBestReplacementArticle(whitelist, matchedTerms, apiKey) {
     whitelistRotationCursor = (whitelistRotationCursor + 1) % whitelistTerms.length;
   }
 
-  const allTerms = [...rotatedWhitelistTerms, ...blacklistMatchedTerms];
-
-  const seen = new Set();
-  const searchTerms = allTerms.filter((term) => {
-    const key = term.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // Only search by whitelist intent; never search by blacklist terms.
+  const searchTerms = rotatedWhitelistTerms;
 
   for (const term of searchTerms) {
-    const article = await fetchArticle(term, apiKey);
+    const article = await fetchArticle(term, apiKey, {
+      blacklistTerms: blacklistMatchedTerms,
+      whitelistTopics,
+      whitelistKeywords,
+      whitelistSources
+    });
     if (article && article.title) {
       return article;
     }
@@ -610,14 +680,26 @@ async function getBestReplacementArticle(whitelist, matchedTerms, apiKey) {
 
   if (whitelistTerms.length) {
     const combined = whitelistTerms.slice(0, 3).join(" OR ");
-    const fallbackArticle = await fetchArticle(combined, apiKey);
+    const fallbackArticle = await fetchArticle(combined, apiKey, {
+      blacklistTerms: blacklistMatchedTerms,
+      whitelistTopics,
+      whitelistKeywords,
+      whitelistSources
+    });
     if (fallbackArticle && fallbackArticle.title) {
       return fallbackArticle;
     }
   }
 
-  console.error("[Reframe] NewsAPI failure: exhausted search terms without finding article.", {
+  // Final fallback: allow generic article only if it does not contain blacklisted terms.
+  const safeRandomFallback = await fetchSafeFallbackArticle(apiKey, blacklistMatchedTerms);
+  if (safeRandomFallback && safeRandomFallback.title) {
+    return safeRandomFallback;
+  }
+
+  console.error("[Reframe] NewsAPI failure: no safe article found for whitelist intent.", {
     searchTerms,
+    blacklistMatchedTerms,
   });
 
   return null;
