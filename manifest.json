@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "Reframe",
   "version": "1.0.0",
-  "description": "Detects blacklisted content and replaces it with your preferred topics using a local LLM.",
+  "description": "Detects blacklisted content and replaces it with article-based content from your preferred topics.",
   "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["http://localhost:11434/*", "https://newsapi.org/*", "https://api.x.ai/*"],
+  "host_permissions": ["https://newsfeed-hhtk.onrender.com/*"],
   "background": {
     "service_worker": "background.js"
   },

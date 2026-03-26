@@ -1,14 +1,12 @@
 # Reframe MVP — Testing Instructions
 
-NOTE: This document applies to local Ollama LLM, OUTDATED as of 3/20/26
+NOTE: This document covers the current article-based replacement flow.
 
 ## Prerequisites
 
 1. **Google Chrome** (or Chromium-based browser)
-2. **Ollama** installed and running locally
-   - Install: https://ollama.com/download
-   - Pull the model: `ollama pull llama3.2`
-   - Start the server: `ollama serve` (runs on `http://localhost:11434`)
+2. Access to the configured article API endpoint
+3. A valid `newsApiKey` value stored in the extension's local storage
 
 ---
 
@@ -22,12 +20,12 @@ NOTE: This document applies to local Ollama LLM, OUTDATED as of 3/20/26
 
 ---
 
-## Step 2: Verify Ollama Connection
+## Step 2: Verify Article API Connection
 
-1. Make sure `ollama serve` is running in a terminal
-2. Click the Reframe toolbar icon to open the popup
-3. The top-right should show a green dot with **"Ollama Connected"**
-4. If it shows red / "Disconnected", check that Ollama is running and listening on port 11434
+1. Open the Reframe popup
+2. Wait for the status badge in the top-right to update
+3. It should show a green dot with **"API Connected"**
+4. If it shows red / **"API Disconnected"**, verify the configured article API is reachable
 
 ---
 
@@ -69,7 +67,7 @@ NOTE: This document applies to local Ollama LLM, OUTDATED as of 3/20/26
 4. Replaced text will have a **subtle blue highlight** and a tooltip showing which blacklisted terms were found
 5. Hover over highlighted text to see the tooltip
 
-**Note:** Each replacement requires a round-trip to Ollama, so replacements appear one at a time. The page remains fully interactive while this happens.
+**Note:** Each replacement requires a round-trip to the article API, so replacements may appear incrementally while the page remains interactive.
 
 ---
 
@@ -115,11 +113,11 @@ NOTE: This document applies to local Ollama LLM, OUTDATED as of 3/20/26
 
 ## Step 8: Test Graceful Degradation
 
-1. Stop Ollama (`Ctrl+C` in the terminal running `ollama serve`)
-2. Open the popup — status should show **red / "Ollama Disconnected"**
+1. Make the article API unavailable, or temporarily remove the stored `newsApiKey`
+2. Open the popup — status should show **red / "API Disconnected"** if the service is unreachable
 3. Visit a page with blacklisted content — console should show match detection but warn about failed replacements
 4. Original text remains unchanged (no broken content)
-5. Restart Ollama (`ollama serve`) and reload the page — replacements should work again
+5. Restore API access and the stored `newsApiKey`, then reload the page — replacements should work again
 
 ---
 
@@ -128,8 +126,9 @@ NOTE: This document applies to local Ollama LLM, OUTDATED as of 3/20/26
 | Problem | Solution |
 |---------|----------|
 | Extension doesn't appear | Make sure Developer mode is on and you selected the correct folder |
-| "Ollama Disconnected" | Run `ollama serve` and verify `http://localhost:11434` responds in a browser |
+| "API Disconnected" | Verify the configured article API endpoint is reachable |
 | No matches found | Check that your blacklist terms actually appear on the page (case-insensitive) |
-| Replacements timeout | Ollama may be slow on first run (loading model). Try again after the model is warm |
+| Replacements timeout | The article API may be slow or unavailable. Retry after the service recovers |
 | No replacements despite matches | Make sure you have **whitelist** entries too — both lists are required |
+| No replacements despite matches and whitelist entries | Verify `newsApiKey` exists in extension local storage |
 | Console errors about IndexedDB | Try removing and re-loading the extension |
