@@ -119,17 +119,11 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
   const safeWhitelist = Array.isArray(whitelist) ? whitelist : [];
   const resolvedNewsApiKey = await resolveNewsApiKey(newsApiKey);
 
-  if (!resolvedNewsApiKey) {
-    console.error("[Reframe] newsFeed failure: API key missing, cannot fetch replacement article.");
-    return {
-      success: false,
-      error: "newsFeed API key is missing. Set newsApiKey in extension storage to enable article-based replacements.",
-    };
-  }
-
-  const articleResult = resolvedNewsApiKey
-    ? await getBestReplacementArticle(safeWhitelist, safeMatchedTerms, resolvedNewsApiKey)
-    : null;
+  const articleResult = await getBestReplacementArticle(
+    safeWhitelist,
+    safeMatchedTerms,
+    resolvedNewsApiKey
+  );
 
   // Strict mode: only replace when we have a reference article.
   if (!articleResult || !articleResult.title) {
@@ -228,9 +222,13 @@ async function fetchArticleBatch(topic, apiKey, page, options = {}) {
       language: "en",
       sortBy: "publishedAt",
       pageSize: "20",
-      page: String(page),
-      apiKey
+      page: String(page)
     });
+
+    // Optional key: only send when present.
+    if (apiKey) {
+      params.set("apiKey", apiKey);
+    }
 
     if (blacklistTerms.length) {
       params.set("blacklistTerms", blacklistTerms.join(","));
