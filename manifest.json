@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Reframe",
   "version": "1.0.0",
-  "description": "Detects blacklisted content and replaces it with article-based content from your preferred topics.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "description": "Detects blacklisted content chosen by user through the UI and replaces it with article-based content from user's preferred topics.",
+  "permissions": ["activeTab", "storage"],
   "host_permissions": ["https://newsfeed-hhtk.onrender.com/*"],
   "background": {
     "service_worker": "background.js"
@@ -20,12 +20,12 @@
     "default_icon": {
       "16": "icons/logo_small.png",
       "48": "icons/logo_small.png",
-      "128": "icons/logo_small.png"
+      "128": "icons/logo_128.png"
     }
   },
   "icons": {
     "16": "icons/logo_small.png",
     "48": "icons/logo_small.png",
-    "128": "icons/logo_small.png"
+    "128": "icons/logo_128.png"
   }
 }

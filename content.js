@@ -81,6 +81,11 @@ function buildRegex(items) {
   return new RegExp("(" + pattern + ")", "gi");
 }
 
+function isExtensionContextInvalidatedError(err) {
+  const message = typeof err === "string" ? err : err?.message;
+  return typeof message === "string" && message.includes("Extension context invalidated");
+}
+
 async function loadPreferences() {
   try {
     const [prefsResponse, storageResult] = await Promise.all([
@@ -99,6 +104,7 @@ async function loadPreferences() {
       ? storedDomains
       : [...DEFAULT_MAJOR_NEWS_DOMAINS];
   } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) return;
     console.warn("[Reframe] Failed to load preferences:", err);
   }
 }
