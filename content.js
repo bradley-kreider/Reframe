@@ -152,6 +152,7 @@ function isDescriptionNode(node) {
   return Boolean(node.closest(DESCRIPTION_CONTAINER_SELECTORS));
 }
 
+// Searches for relevant "description" text by surrounding container
 function updateCardDescription(container, descriptionText, replacementNode) {
   if (!container || !descriptionText) return;
 
@@ -170,6 +171,7 @@ function updateCardDescription(container, descriptionText, replacementNode) {
   descriptionElement.setAttribute("data-reframe-replaced", "true");
 }
 
+// look for "blacklisted" content in text nodes and return info about what was matched for replacement
 function findMatches(textNodes) {
   if (!blacklistRegex) return [];
   const matches = [];
@@ -226,6 +228,7 @@ function findMatches(textNodes) {
           containerMatchIndexByKey.set(containerKey, matches.length);
         }
 
+        // match info that's returned
         matches.push({
           node,
           text: node.textContent,
@@ -240,6 +243,7 @@ function findMatches(textNodes) {
   return matches;
 }
 
+// rescan pages to catch late-loaded content, with exponential backoff up to a max delay and attempt count
 function resetAdaptiveRescan() {
   adaptiveRescanAttempt = 0;
   if (adaptiveRescanTimer) {
@@ -248,11 +252,13 @@ function resetAdaptiveRescan() {
   }
 }
 
+// Schedule a rescan with exponential backoff, unless we've already scheduled one or hit the max attempt count.
 function scheduleAdaptiveRescan(reason) {
   if (adaptiveRescanTimer || adaptiveRescanAttempt >= ADAPTIVE_RESCAN_MAX_ATTEMPTS) {
     return;
   }
 
+    // exponential backoff
   const delay = Math.min(
     ADAPTIVE_RESCAN_BASE_MS * Math.pow(2, adaptiveRescanAttempt),
     ADAPTIVE_RESCAN_MAX_MS
@@ -267,10 +273,12 @@ function scheduleAdaptiveRescan(reason) {
   }, delay);
 }
 
+// replace content concurrently with a small worker pool to improve throughput while avoiding request floods on pages with many matches
 async function replaceMatchesConcurrently(matches) {
   if (!matches.length) return;
 
   let index = 0;
+  // MAX_CONCURRENT_REPLACEMENTS is a tunable constant which determines how many replacements to process in parallel. Adjust for performance tuning.
   const workerCount = Math.min(MAX_CONCURRENT_REPLACEMENTS, matches.length);
   const workers = Array.from({ length: workerCount }, async () => {
     while (index < matches.length) {
@@ -282,14 +290,7 @@ async function replaceMatchesConcurrently(matches) {
   await Promise.all(workers);
 }
 
-function schedulePendingImageRetry() {
-  if (pendingImageRetryTimer || !pendingImageReplacements.size) return;
-  pendingImageRetryTimer = setTimeout(() => {
-    pendingImageRetryTimer = null;
-    processPendingImageReplacements();
-  }, IMAGE_RETRY_INTERVAL_MS);
-}
-
+// If we weren't able to replace a paired image at the same time as the text (likely because the image hadn't loaded yet), keep track of it and retry for a while in case it appears later.
 function queuePairedImageReplacement(contextNode, imageUrl, articleUrl) {
   if (!contextNode || !imageUrl) return;
 
@@ -302,6 +303,16 @@ function queuePairedImageReplacement(contextNode, imageUrl, articleUrl) {
   schedulePendingImageRetry();
 }
 
+// schedule the latest replacements for paired images with articles
+function schedulePendingImageRetry() {
+  if (pendingImageRetryTimer || !pendingImageReplacements.size) return;
+  pendingImageRetryTimer = setTimeout(() => {
+    pendingImageRetryTimer = null;
+    processPendingImageReplacements();
+  }, IMAGE_RETRY_INTERVAL_MS);
+}
+
+// Look for paired images for any pending replacements and update them if found. If not found, keep them in the queue and retry later until we hit the max attempt count.
 function processPendingImageReplacements() {
   if (!pendingImageReplacements.size) return;
 
@@ -323,6 +334,7 @@ function processPendingImageReplacements() {
   }
 }
 
+// MAIN REPLACEMENT FUNCTION -> Replace a matched text node with replacement content fetched from the background script, and update the surrounding card container if applicable.
 async function replaceMatch(match) {
   try {
     if (match.container?.getAttribute("data-reframe-container-replaced") === "true") {
@@ -367,7 +379,7 @@ async function replaceMatch(match) {
     replacement.textContent = response.replacement;
     replacement.setAttribute("data-reframe-replaced", "true");
     
-    // Copy computed styles from parent to match seamlessly
+    // Copy computed styles from parent to match replacement seamlessly
     const computedStyle = window.getComputedStyle(contextElement);
     const stylesToCopy = [
       "color",
@@ -396,17 +408,21 @@ async function replaceMatch(match) {
     
     contextElement.replaceChild(replacement, match.node);
 
+    // DOM updates can sometimes cause the original container reference to become stale, so we re-query for the container after replacement before updating it.
     if (match.container) {
       if (response.articleDescription) {
+        // update description text
         updateCardDescription(match.container, response.articleDescription, replacement);
       }
 
+      // set attribute on container to prevent multiple replacements and to allow for paired image replacement
       match.container.setAttribute("data-reframe-container-replaced", "true");
       if (match.containerKey) {
         match.container.setAttribute("data-reframe-container-key", match.containerKey);
       }
     }
 
+    // if the replacement content is paired with an article that has an image, try to find a relevant image in the same card/container and replace it. If we can't find one, add it to a queue to retry later in case the image loads after the text.
     if (response.articleImageUrl) {
       const didReplaceImage = replacePairedImage(replacement, response.articleImageUrl, response.articleUrl);
       if (!didReplaceImage) {
@@ -418,6 +434,7 @@ async function replaceMatch(match) {
   }
 }
 
+// Look for relevant image to be replaced by proximity, also replace image URL to link to new article site
 function replacePairedImage(contextNode, imageUrl, articleUrl) {
   // Accept both http/https and data: URLs
   const isHttpImage = /^https?:\/\//i.test(imageUrl || "");
@@ -457,6 +474,7 @@ function replacePairedImage(contextNode, imageUrl, articleUrl) {
     return width > 120 && height > 80 && isVisible;
   });
 
+  // find images that are large enough to be relevant or are explicitly marked as image containers, even if they're not currently visible (e.g. due to lazy loading or CSS)
   const fallbackCandidateImages = Array.from(container.querySelectorAll("picture img, .image__dam-img, img")).filter((img) => {
     const width = Math.max(img.naturalWidth || 0, img.width || 0, img.offsetWidth || 0);
     const height = Math.max(img.naturalHeight || 0, img.height || 0, img.offsetHeight || 0);
@@ -481,7 +499,8 @@ function replacePairedImage(contextNode, imageUrl, articleUrl) {
     const bDistance = Math.abs(bCenterY - sourceCenterY);
     const iDistance = Math.abs(iCenterY - sourceCenterY);
 
-    // Prefer images closer to the replaced text, with area as a secondary signal.
+    // Prefer images closer to the replaced text, with area as a secondary signal. PROXIMITY.
+    // distance is measured by the distance between the vertical center of the image and the vertical center of the replaced text
     const bScore = bDistance * 5 - bArea / 1000;
     const iScore = iDistance * 5 - iArea / 1000;
     return iScore < bScore ? img : best;
@@ -524,6 +543,7 @@ function replacePairedImage(contextNode, imageUrl, articleUrl) {
   return true;
 }
 
+// main page scan function - looks for matches and replaces them, with various checks and fallbacks to handle dynamic content and ensure replacements are applied correctly
 async function scanPage() {
   if (scanning) {
     queuedScanRequested = true;
@@ -539,6 +559,7 @@ async function scanPage() {
       return;
     }
 
+    // does nothing if not on a major news website
     if (restrictToMajorNews && !isMajorNewsWebsite(window.location.hostname)) {
       resetAdaptiveRescan();
       return;
@@ -601,6 +622,7 @@ window.addEventListener("load", () => {
   processPendingImageReplacements();
 });
 
+// In case of infinite scroll or late-loaded content, we also check for pending image replacements on scroll to catch any images that load after the initial scan.
 window.addEventListener("scroll", () => {
   if (pendingImageReplacements.size) {
     processPendingImageReplacements();
