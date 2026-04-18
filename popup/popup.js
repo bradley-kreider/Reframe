@@ -331,7 +331,54 @@ clearCacheBtn.addEventListener("click", async () => {
   });
 });
 
+// --- API Key management (developer tool) ---
+const apiKeyInput = document.getElementById("api-key-input");
+const saveApiKeyBtn = document.getElementById("save-api-key-btn");
+
+// Load existing API key on popup open
+async function loadApiKey() {
+  try {
+    const result = await chrome.storage.local.get("newsApiKey");
+    if (result.newsApiKey) {
+      apiKeyInput.value = result.newsApiKey;
+    }
+  } catch (err) {
+    console.error("Failed to load API key:", err);
+  }
+}
+
+saveApiKeyBtn.addEventListener("click", async () => {
+  const apiKey = apiKeyInput.value.trim();
+  try {
+    if (apiKey) {
+      await chrome.storage.local.set({ newsApiKey: apiKey });
+      saveApiKeyBtn.textContent = "Saved!";
+      setTimeout(() => { saveApiKeyBtn.textContent = "Save API Key"; }, 1500);
+    } else {
+      // Clear the API key if input is empty
+      await chrome.storage.local.remove("newsApiKey");
+      saveApiKeyBtn.textContent = "Cleared!";
+      setTimeout(() => { saveApiKeyBtn.textContent = "Save API Key"; }, 1500);
+    }
+    // Re-check API status after saving
+    checkCustomApiStatus();
+  } catch (err) {
+    console.error("Failed to save API key:", err);
+    saveApiKeyBtn.textContent = "Error!";
+    setTimeout(() => { saveApiKeyBtn.textContent = "Save API Key"; }, 1500);
+  }
+});
+
+// Allow Enter key to save API key
+apiKeyInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    saveApiKeyBtn.click();
+  }
+});
+
 // --- Init ---
 renderList();
 checkCustomApiStatus();
 loadSettings();
+loadApiKey();

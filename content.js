@@ -99,6 +99,14 @@ async function loadPreferences() {
     replacementEnabled = storageResult.replacementEnabled !== false;
     restrictToMajorNews = Boolean(storageResult.restrictToMajorNews);
 
+    console.log("[Reframe] Loaded preferences:", {
+      blacklistCount: blacklist.length,
+      whitelistCount: whitelist.length,
+      newsApiKey: newsApiKey ? "***" + newsApiKey.slice(-4) : null,
+      replacementEnabled,
+      restrictToMajorNews
+    });
+
     const storedDomains = normalizeDomainList(storageResult.majorNewsDomains);
     majorNewsDomains = storedDomains.length
       ? storedDomains
@@ -347,6 +355,13 @@ async function replaceMatch(match) {
       matchedTerms: match.matchedTerms,
       whitelist,
       newsApiKey,
+    });
+
+    console.log("[Reframe] Sending replacement request:", {
+      text: match.text,
+      matchedTerms: match.matchedTerms,
+      whitelistCount: whitelist.length,
+      newsApiKey: newsApiKey ? "***" + newsApiKey.slice(-4) : null
     });
 
     if (!response || !response.success) {

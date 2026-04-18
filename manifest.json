@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Detects blacklisted content chosen by user through the UI and replaces it with article-based content from user's preferred topics.",
   "permissions": ["storage"],
-  "host_permissions": ["https://newsfeed-hhtk.onrender.com/*"],
+  "host_permissions": ["https://api.newsfeedapi.dev/*"],
   "background": {
     "service_worker": "background.js"
   },

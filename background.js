@@ -1,6 +1,6 @@
 importScripts("db.js");
 
-const NEWSAPI_BASE = "https://api.newsfeedapi.dev/v2/everything"; // CUSTOM LIVE API BOIIII I TELL YOU WHAT
+const NEWSAPI_BASE = "https://api.newsfeedapi.dev/v2/everything";
 
 const NEWSAPI_FETCH_TIMEOUT_MS = 5000;
 const ARTICLE_FETCH_ATTEMPTS = 3;
@@ -81,9 +81,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function checkCustomApiHeartbeat() {
   const endpoints = [
-    NEWSAPI_BASE + "/health",
-    NEWSAPI_BASE + "/heartbeat",
-    NEWSAPI_BASE,
+    NEWSAPI_BASE + "?q=test&language=en&pageSize=1",
   ];
   try {
     for (const endpoint of endpoints) {
@@ -115,6 +113,14 @@ async function getReplacements(originalText, matchedTerms, whitelist, newsApiKey
   const safeMatchedTerms = Array.isArray(matchedTerms) ? matchedTerms : [];
   const safeWhitelist = Array.isArray(whitelist) ? whitelist : [];
   const resolvedNewsApiKey = await resolveNewsApiKey(newsApiKey);
+
+  console.log("[Reframe] getReplacements called:", {
+    originalText: originalText.substring(0, 50) + "...",
+    matchedTerms: safeMatchedTerms,
+    whitelistCount: safeWhitelist.length,
+    providedApiKey: newsApiKey ? "***" + newsApiKey.slice(-4) : null,
+    resolvedApiKey: resolvedNewsApiKey ? "***" + resolvedNewsApiKey.slice(-4) : null
+  });
 
   const articleResult = await getBestReplacementArticle(
     safeWhitelist,
@@ -216,17 +222,15 @@ async function fetchArticleBatch(topic, apiKey, page, options = {}) {
   try {
     const params = new URLSearchParams({
       q: topic,
-      language: "en",
       sortBy: "publishedAt",
       pageSize: "20",
       page: String(page)
     });
 
-    // Optional key: only send when present.
-    if (apiKey) {
-      params.set("apiKey", apiKey);
-    }
+    // Add optional language parameter
+    params.set("language", "en");
 
+    // Add optional parameters if provided
     if (blacklistTerms.length) {
       params.set("blacklistTerms", blacklistTerms.join(","));
     }
@@ -242,7 +246,18 @@ async function fetchArticleBatch(topic, apiKey, page, options = {}) {
 
     const url = NEWSAPI_BASE + "?" + params.toString();
 
-    const res = await fetch(url, { signal: controller.signal });
+    console.log(`[Reframe] Fetching articles from authenticated endpoint for topic "${topic}"`);
+
+    const headers = {};
+    // Add API key as header if provided
+    if (apiKey) {
+      headers["X-API-Key"] = apiKey;
+    }
+
+    const res = await fetch(url, { 
+      signal: controller.signal,
+      headers: headers
+    });
     if (!res.ok) {
       const errorText = await res.text();
       console.warn("[Reframe] newsFeed returned", res.status, "for topic", topic, errorText);
@@ -250,6 +265,13 @@ async function fetchArticleBatch(topic, apiKey, page, options = {}) {
     }
 
     const data = await res.json();
+    
+    // Check for API error response
+    if (data.status === "error") {
+      console.warn("[Reframe] newsFeed API error:", data.code, data.message);
+      return [];
+    }
+    
     const articles = (data.articles || [])
       .filter((a) => a && a.title && a.url)
       .map((article) => ({
@@ -260,6 +282,8 @@ async function fetchArticleBatch(topic, apiKey, page, options = {}) {
       }))
       .filter((article) => !articleContainsBlacklistedTerm(article, blacklistTerms));
 
+    console.log(`[Reframe] Fetched ${articles.length} articles for topic "${topic}" (filtered from ${data.articles?.length || 0} total)`);
+    
     return articles;
   } catch (err) {
     const errorMessage =
@@ -339,8 +363,15 @@ async function resolveNewsApiKey(providedKey) {
 
   try {
     const result = await chrome.storage.local.get("newsApiKey");
-    return typeof result.newsApiKey === "string" ? result.newsApiKey.trim() : "";
-  } catch {
+    const storedKey = typeof result.newsApiKey === "string" ? result.newsApiKey.trim() : "";
+    console.log("[Reframe] resolveNewsApiKey:", {
+      providedKey: trimmed ? "***" + trimmed.slice(-4) : null,
+      storedKey: storedKey ? "***" + storedKey.slice(-4) : null,
+      finalKey: storedKey ? "***" + storedKey.slice(-4) : null
+    });
+    return storedKey;
+  } catch (err) {
+    console.error("[Reframe] Error resolving API key:", err);
     return "";
   }
 }
