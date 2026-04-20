@@ -60,7 +60,7 @@ NOTE: This document covers the current article-based replacement flow.
 
 1. Open a news site that likely contains your blacklisted terms (e.g., CNN, BBC, Reuters)
 2. Open the browser DevTools console (`F12` → Console tab)
-3. You should see log messages:
+3. You should see `log messages:
    - `[Reframe] Scanning page...`
    - `[Reframe] Found X matches`
    - `[Reframe] Scan complete`
